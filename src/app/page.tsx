@@ -15,6 +15,13 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Signal,
+  Wifi,
+  WifiOff,
+  ChevronDown,
+  ChevronUp,
+  RefreshCw,
+  Brain,
+  Gauge,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,8 +36,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Progress } from "@/components/ui/progress";
 
-/* ─── Types ─── */
+/* ─Types ─*/
 interface ForexSignal {
   id: string;
   pair: string;
@@ -41,6 +55,11 @@ interface ForexSignal {
   timestamp: string;
   status: "ACTIVE" | "TP_HIT" | "SL_HIT" | "CLOSED";
   pips?: number;
+  confidence?: number;
+  reasoning?: string[];
+  indicators?: Record<string, string | number>;
+  priceData?: { bid: number; ask: number; high: number; low: number; open: number };
+  source?: string;
 }
 
 interface PriceData {
@@ -52,10 +71,10 @@ interface PriceData {
   changePercent: number;
 }
 
-/* ─── Helpers ─── */
+/* ─Helpers ─*/
 function formatTime(iso: string) {
   const d = new Date(iso);
-  return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+  return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 }
 
 function formatPrice(price: number, pair: string) {
@@ -70,34 +89,41 @@ function getDecimals(pair: string) {
   return 4;
 }
 
-/* ─── Pulse Dot ─── */
+/* ─Pulse Dot ─*/
 function PulseDot({ color }: { color: string }) {
   return (
     <span className="relative flex h-2.5 w-2.5">
-      <span
-        className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-75 ${color}`}
-      />
+      <span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-75 ${color}`} />
       <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${color}`} />
     </span>
   );
 }
 
-/* ─── Price Ticker Bar ─── */
+/* ─Confidence Bar ─*/
+function ConfidenceBar({ confidence }: { confidence: number }) {
+  const color = confidence >= 80 ? "bg-emerald-500" : confidence >= 60 ? "bg-amber-500" : "bg-rose-500";
+  const textColor = confidence >= 80 ? "text-emerald-400" : confidence >= 60 ? "text-amber-400" : "text-rose-400";
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-background/60">
+        <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${confidence}%` }} />
+      </div>
+      <span className={`text-[10px] font-bold ${textColor}`}>{confidence}%</span>
+    </div>
+  );
+}
+
+/* ─Price Ticker Bar ─*/
 function PriceTickerBar({ prices }: { prices: PriceData[] }) {
   return (
     <div className="w-full overflow-hidden border-b border-border/40 bg-card/60 backdrop-blur">
       <div className="flex animate-scroll items-center gap-6 px-4 py-2">
-        {[...prices, ...prices].map((p, i) => (
+        {[...prices, ...prices, ...prices, ...prices].map((p, i) => (
           <div key={`${p.pair}-${i}`} className="flex shrink-0 items-center gap-2 text-xs">
             <span className="font-semibold text-foreground/90">{p.pair}</span>
             <span className="font-mono text-foreground/80">{formatPrice(p.bid, p.pair)}</span>
-            <span
-              className={`font-mono ${
-                p.change >= 0 ? "text-emerald-400" : "text-rose-400"
-              }`}
-            >
-              {p.change >= 0 ? "+" : ""}
-              {p.changePercent.toFixed(3)}%
+            <span className={p.changePercent >= 0 ? "text-emerald-400" : "text-rose-400"}>
+              {p.changePercent >= 0 ? "+" : ""}{p.changePercent.toFixed(3)}%
             </span>
           </div>
         ))}
@@ -106,8 +132,8 @@ function PriceTickerBar({ prices }: { prices: PriceData[] }) {
   );
 }
 
-/* ─── Stats Cards ─── */
-function StatsCards({ signals }: { signals: ForexSignal[] }) {
+/* ─Stats Cards ─*/
+function StatsCards({ signals, dataSource }: { signals: ForexSignal[]; dataSource: string }) {
   const totalSignals = signals.length;
   const activeSignals = signals.filter((s) => s.status === "ACTIVE").length;
   const tpHits = signals.filter((s) => s.status === "TP_HIT").length;
@@ -115,37 +141,95 @@ function StatsCards({ signals }: { signals: ForexSignal[] }) {
   const completed = tpHits + slHits;
   const winRate = completed > 0 ? ((tpHits / completed) * 100).toFixed(1) : "—";
   const totalPips = signals.reduce((acc, s) => acc + (s.pips || 0), 0);
+  const realSignals = signals.filter((s) => s.source === "RapidAPI").length;
+  const avgConfidence = signals.length > 0
+    ? Math.round(signals.reduce((acc, s) => acc + (s.confidence || 0), 0) / signals.length)
+    : 0;
 
   const stats = [
     { label: "Total Signals", value: totalSignals, icon: Signal, color: "text-sky-400" },
-    { label: "Active Signals", value: activeSignals, icon: Activity, color: "text-amber-400" },
+    { label: "Active", value: activeSignals, icon: Activity, color: "text-amber-400" },
     { label: "Win Rate", value: `${winRate}%`, icon: Trophy, color: "text-emerald-400" },
-    { label: "TP Hits", value: tpHits, icon: Target, color: "text-emerald-400" },
-    { label: "SL Hits", value: slHits, icon: ShieldAlert, color: "text-rose-400" },
+    { label: "TP / SL", value: `${tpHits} / ${slHits}`, icon: Target, color: "text-emerald-400" },
     { label: "Total Pips", value: `${totalPips > 0 ? "+" : ""}${totalPips.toFixed(1)}`, icon: BarChart3, color: totalPips >= 0 ? "text-emerald-400" : "text-rose-400" },
+    { label: "Avg Confidence", value: `${avgConfidence}%`, icon: Brain, color: "text-violet-400" },
   ];
 
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
       {stats.map((stat) => (
         <Card key={stat.label} className="border-border/30 bg-card/80 backdrop-blur">
-          <CardContent className="flex flex-col items-center gap-1 p-4 text-center">
-            <stat.icon className={`h-5 w-5 ${stat.color}`} />
-            <span className="text-2xl font-bold text-foreground">{stat.value}</span>
-            <span className="text-xs text-muted-foreground">{stat.label}</span>
+          <CardContent className="flex flex-col items-center gap-1 p-3 text-center">
+            <stat.icon className={`h-4 w-4 ${stat.color}`} />
+            <span className="text-xl font-bold text-foreground">{stat.value}</span>
+            <span className="text-[10px] text-muted-foreground">{stat.label}</span>
           </CardContent>
         </Card>
       ))}
+      {/* Data source indicator */}
+      <Card className={`col-span-2 sm:col-span-3 lg:col-span-6 border ${dataSource === "live" ? "border-emerald-500/30 bg-emerald-500/5" : "border-amber-500/30 bg-amber-500/5"}`}>
+        <CardContent className="flex items-center justify-center gap-2 p-2.5">
+          {dataSource === "live" ? (
+            <>
+              <Wifi className="h-4 w-4 text-emerald-400" />
+              <span className="text-xs font-medium text-emerald-400">LIVE DATA — RapidAPI Connected</span>
+              <span className="text-[10px] text-muted-foreground">(Twelve Data + Alpha Vantage)</span>
+              <Badge variant="outline" className="ml-2 border-emerald-500/30 text-[10px] text-emerald-400">
+                {realSignals} real signals
+              </Badge>
+            </>
+          ) : (
+            <>
+              <WifiOff className="h-4 w-4 text-amber-400" />
+              <span className="text-xs font-medium text-amber-400">FALLBACK MODE — Using simulated data</span>
+              <span className="text-[10px] text-muted-foreground">(API reconnecting...)</span>
+            </>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
-/* ─── Signal Card ─── */
+/* ─Indicators Panel ─*/
+function IndicatorsPanel({ indicators }: { indicators: Record<string, string | number> | undefined }) {
+  const [open, setOpen] = useState(false);
+  if (!indicators || Object.keys(indicators).length === 0) return null;
+
+  const entries = Object.entries(indicators);
+  const displayed = open ? entries : entries.slice(0, 4);
+
+  return (
+    <div className="mt-3 border-t border-border/20 pt-2">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center justify-between text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground/70 transition-colors"
+      >
+        <span className="flex items-center gap-1">
+          <Gauge className="h-3 w-3" />
+          Technical Indicators
+        </span>
+        {open ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+      </button>
+      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+        {displayed.map(([key, value]) => (
+          <div key={key} className="rounded-md bg-background/60 px-2 py-1">
+            <span className="text-[9px] text-muted-foreground">{key}</span>
+            <p className="font-mono text-[11px] font-bold text-foreground/90">{String(value)}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ─Signal Card ─*/
 function SignalCard({ signal, isNew = false }: { signal: ForexSignal; isNew?: boolean }) {
   const isBuy = signal.type === "BUY";
   const isActive = signal.status === "ACTIVE";
   const isTP = signal.status === "TP_HIT";
   const isSL = signal.status === "SL_HIT";
+  const isReal = signal.source === "RapidAPI";
 
   return (
     <Card
@@ -162,6 +246,7 @@ function SignalCard({ signal, isNew = false }: { signal: ForexSignal; isNew?: bo
           <Zap className="h-3 w-3" /> NEW
         </div>
       )}
+
       <CardContent className="p-4">
         {/* Header */}
         <div className="mb-3 flex items-center justify-between">
@@ -177,108 +262,112 @@ function SignalCard({ signal, isNew = false }: { signal: ForexSignal; isNew?: bo
                 </div>
               )
             ) : (
-              <div
-                className={`flex h-8 w-8 items-center justify-center rounded-lg ${
-                  isTP ? "bg-emerald-500/20" : "bg-rose-500/20"
-                }`}
-              >
-                {isTP ? (
-                  <Target className="h-5 w-5 text-emerald-400" />
-                ) : (
-                  <ShieldAlert className="h-5 w-5 text-rose-400" />
-                )}
+              <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${isTP ? "bg-emerald-500/20" : "bg-rose-500/20"}`}>
+                {isTP ? <Target className="h-5 w-5 text-emerald-400" /> : <ShieldAlert className="h-5 w-5 text-rose-400" />}
               </div>
             )}
             <div>
-              <h3 className="text-sm font-bold text-foreground">{signal.pair}</h3>
-              <p className="text-xs text-muted-foreground">{signal.id}</p>
+              <div className="flex items-center gap-1.5">
+                <h3 className="text-sm font-bold text-foreground">{signal.pair}</h3>
+                {isReal && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <Wifi className="h-3 w-3 text-emerald-400" />
+                      </TooltipTrigger>
+                      <TooltipContent className="text-xs">Real API Data</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+              </div>
+              <p className="text-[10px] text-muted-foreground">{signal.id}</p>
             </div>
           </div>
-          <Badge
-            className={`text-xs font-bold ${
-              isBuy
-                ? "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30"
-                : "bg-rose-500/20 text-rose-400 hover:bg-rose-500/30"
-            }`}
-            variant="outline"
-          >
-            {isBuy ? (
-              <span className="flex items-center gap-1">
-                <ArrowUpRight className="h-3 w-3" /> BUY
-              </span>
-            ) : (
-              <span className="flex items-center gap-1">
-                <ArrowDownRight className="h-3 w-3" /> SELL
-              </span>
-            )}
-          </Badge>
+          <div className="flex flex-col items-end gap-1">
+            <Badge
+              className={`text-xs font-bold ${
+                isBuy
+                  ? "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30"
+                  : "bg-rose-500/20 text-rose-400 hover:bg-rose-500/30"
+              }`}
+              variant="outline"
+            >
+              {isBuy ? (
+                <span className="flex items-center gap-1"><ArrowUpRight className="h-3 w-3" /> BUY</span>
+              ) : (
+                <span className="flex items-center gap-1"><ArrowDownRight className="h-3 w-3" /> SELL</span>
+              )}
+            </Badge>
+            {signal.confidence && <ConfidenceBar confidence={signal.confidence} />}
+          </div>
         </div>
 
         {/* Prices */}
-        <div className="mb-3 grid grid-cols-3 gap-2">
+        <div className="mb-2 grid grid-cols-3 gap-2">
           <div className="rounded-lg bg-background/60 p-2">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Entry
-            </p>
-            <p className="font-mono text-sm font-bold text-foreground">
-              {formatPrice(signal.entry, signal.pair)}
-            </p>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Entry</p>
+            <p className="font-mono text-sm font-bold text-foreground">{formatPrice(signal.entry, signal.pair)}</p>
           </div>
           <div className="rounded-lg bg-emerald-500/10 p-2">
-            <p className="text-[10px] uppercase tracking-wider text-emerald-400/70">
-              Take Profit
-            </p>
-            <p className="font-mono text-sm font-bold text-emerald-400">
-              {formatPrice(signal.tp, signal.pair)}
-            </p>
+            <p className="text-[10px] uppercase tracking-wider text-emerald-400/70">Take Profit</p>
+            <p className="font-mono text-sm font-bold text-emerald-400">{formatPrice(signal.tp, signal.pair)}</p>
           </div>
           <div className="rounded-lg bg-rose-500/10 p-2">
-            <p className="text-[10px] uppercase tracking-wider text-rose-400/70">
-              Stop Loss
-            </p>
-            <p className="font-mono text-sm font-bold text-rose-400">
-              {formatPrice(signal.sl, signal.pair)}
-            </p>
+            <p className="text-[10px] uppercase tracking-wider text-rose-400/70">Stop Loss</p>
+            <p className="font-mono text-sm font-bold text-rose-400">{formatPrice(signal.sl, signal.pair)}</p>
           </div>
         </div>
 
+        {/* Reasoning */}
+        {signal.reasoning && signal.reasoning.length > 0 && (
+          <div className="mb-2 rounded-lg bg-background/40 p-2">
+            <p className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">Analysis</p>
+            <div className="flex flex-wrap gap-1">
+              {signal.reasoning.slice(0, 3).map((r, i) => (
+                <span key={i} className="rounded-full bg-background/80 px-2 py-0.5 text-[10px] text-foreground/70">
+                  {r}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Indicators */}
+        <IndicatorsPanel indicators={signal.indicators} />
+
         {/* Footer */}
-        <div className="flex items-center justify-between">
+        <div className="mt-3 flex items-center justify-between border-t border-border/20 pt-2">
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Clock className="h-3 w-3" />
             {formatTime(signal.timestamp)}
           </div>
-          {!isActive && signal.pips !== undefined && (
+          {!isActive && signal.pips !== undefined ? (
             <Badge
               variant="outline"
-              className={`text-xs font-bold ${
-                signal.pips > 0
-                  ? "border-emerald-500/30 text-emerald-400"
-                  : "border-rose-500/30 text-rose-400"
-              }`}
+              className={`text-xs font-bold ${signal.pips > 0 ? "border-emerald-500/30 text-emerald-400" : "border-rose-500/30 text-rose-400"}`}
             >
-              {signal.pips > 0 ? "+" : ""}
-              {signal.pips} pips
+              {signal.pips > 0 ? "+" : ""}{signal.pips} pips
             </Badge>
-          )}
-          {isActive && (
+          ) : isActive ? (
             <div className="flex items-center gap-1.5">
               <PulseDot color="bg-emerald-400" />
               <span className="text-xs font-medium text-emerald-400">LIVE</span>
             </div>
-          )}
+          ) : null}
         </div>
       </CardContent>
     </Card>
   );
 }
 
-/* ─── Main Page ─── */
+/* ─Main Page ─*/
 export default function Home() {
   const [signals, setSignals] = useState<ForexSignal[]>([]);
   const [prices, setPrices] = useState<PriceData[]>([]);
   const [newSignalId, setNewSignalId] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
+  const [dataSource, setDataSource] = useState<string>("connecting");
+  const [refreshing, setRefreshing] = useState(false);
   const socketRef = useRef<Socket | null>(null);
 
   const connectSocket = useCallback(() => {
@@ -287,40 +376,23 @@ export default function Home() {
     const socket = io("/?XTransformPort=3003", {
       transports: ["websocket", "polling"],
       reconnection: true,
-      reconnectionAttempts: 10,
+      reconnectionAttempts: 15,
       reconnectionDelay: 2000,
     });
 
-    socket.on("connect", () => {
-      console.log("Connected to signal service");
-      setConnected(true);
-    });
+    socket.on("connect", () => { console.log("WS connected"); setConnected(true); });
+    socket.on("disconnect", () => { console.log("WS disconnected"); setConnected(false); });
 
-    socket.on("disconnect", () => {
-      console.log("Disconnected from signal service");
-      setConnected(false);
-    });
-
-    socket.on("signals", (data: ForexSignal[]) => {
-      setSignals(data);
-    });
-
+    socket.on("signals", (data: ForexSignal[]) => setSignals(data));
     socket.on("new_signal", (signal: ForexSignal) => {
       setSignals((prev) => [signal, ...prev]);
       setNewSignalId(signal.id);
       setTimeout(() => setNewSignalId(null), 5000);
     });
-
     socket.on("signal_update", (updated: ForexSignal) => {
-      setSignals((prev) =>
-        prev.map((s) => (s.id === updated.id ? updated : s))
-      );
+      setSignals((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
     });
-
-    socket.on("prices", (data: PriceData[]) => {
-      setPrices(data);
-    });
-
+    socket.on("prices", (data: PriceData[]) => setPrices(data));
     socket.on("price_updates", (updates: PriceData[]) => {
       setPrices((prev) => {
         const map = new Map(prev.map((p) => [p.pair, p]));
@@ -328,27 +400,44 @@ export default function Home() {
         return Array.from(map.values());
       });
     });
+    socket.on("data_source", (src: string) => setDataSource(src));
 
     socketRef.current = socket;
   }, []);
 
+  /* ─Refresh signals from API ─*/
+  const refreshSignals = async () => {
+    setRefreshing(true);
+    try {
+      const res = await fetch("/api/forex/signal");
+      const data = await res.json();
+      if (data.signals && data.signals.length > 0) {
+        setSignals((prev) => {
+          const existing = new Set(prev.map((s) => s.pair));
+          const newOnes = data.signals.filter((s: ForexSignal) => !existing.has(s.pair));
+          return [...newOnes, ...prev];
+        });
+      }
+    } catch (e) {
+      console.error("Refresh failed:", e);
+    }
+    setRefreshing(false);
+  };
+
   useEffect(() => {
-    // Fetch initial data from API
-    fetch("/api/signals")
+    // Initial fetch from API
+    fetch("/api/forex/prices")
       .then((r) => r.json())
-      .then((data: ForexSignal[]) => setSignals(data))
+      .then((data) => { if (data.prices) setPrices(data.prices); })
       .catch(console.error);
 
-    fetch("/api/prices")
+    fetch("/api/forex/signal")
       .then((r) => r.json())
-      .then((data: PriceData[]) => setPrices(data))
+      .then((data) => { if (data.signals) setSignals(data.signals); })
       .catch(console.error);
 
     connectSocket();
-
-    return () => {
-      socketRef.current?.disconnect();
-    };
+    return () => { socketRef.current?.disconnect(); };
   }, [connectSocket]);
 
   const activeSignals = signals.filter((s) => s.status === "ACTIVE");
@@ -356,7 +445,7 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      {/* ─── Header ─── */}
+      {/* Header */}
       <header className="sticky top-0 z-50 border-b border-border/40 bg-background/80 backdrop-blur-lg">
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
           <div className="flex items-center gap-3">
@@ -369,35 +458,38 @@ export default function Home() {
               </h1>
             </div>
           </div>
-
-          <div className="flex items-center gap-4">
-            <div className="hidden items-center gap-2 sm:flex">
-              <div className="flex items-center gap-1.5 rounded-full bg-card px-3 py-1.5 text-xs border border-border/40">
-                <span className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-400" : "bg-rose-400"}`} />
-                <span className="text-muted-foreground">
-                  {connected ? "Live Connected" : "Reconnecting..."}
-                </span>
-              </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={refreshSignals}
+              disabled={refreshing}
+              className="flex items-center gap-1.5 rounded-lg border border-border/40 bg-card/80 px-3 py-1.5 text-xs font-medium text-foreground/80 transition-colors hover:bg-card hover:text-foreground disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+              Analyze
+            </button>
+            <div className="hidden items-center gap-2 rounded-full border border-border/40 bg-card/80 px-3 py-1.5 sm:flex">
+              <span className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-400" : "bg-rose-400"}`} />
+              <span className="text-xs text-muted-foreground">
+                {connected ? (dataSource === "live" ? "Live" : "Standby") : "Connecting..."}
+              </span>
             </div>
           </div>
         </div>
       </header>
 
-      {/* ─── Price Ticker ─── */}
+      {/* Price Ticker */}
       {prices.length > 0 && <PriceTickerBar prices={prices} />}
 
-      {/* ─── Main Content ─── */}
+      {/* Main Content */}
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6">
-        {/* Stats */}
         <section className="mb-6">
-          <StatsCards signals={signals} />
+          <StatsCards signals={signals} dataSource={dataSource} />
         </section>
 
         <Separator className="mb-6 bg-border/30" />
 
-        {/* Tabs */}
         <Tabs defaultValue="active" className="w-full">
-          <TabsList className="mb-4 bg-card/80 backdrop-blur border border-border/30">
+          <TabsList className="mb-4 bg-card/80 border border-border/30">
             <TabsTrigger value="active" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400">
               <span className="flex items-center gap-1.5">
                 <Activity className="h-4 w-4" />
@@ -412,7 +504,7 @@ export default function Home() {
             <TabsTrigger value="history" className="data-[state=active]:bg-sky-500/20 data-[state=active]:text-sky-400">
               <span className="flex items-center gap-1.5">
                 <BarChart3 className="h-4 w-4" />
-                Signal History
+                History
                 {completedSignals.length > 0 && (
                   <span className="ml-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-sky-500/20 px-1.5 text-[10px] font-bold text-sky-400">
                     {completedSignals.length}
@@ -428,37 +520,43 @@ export default function Home() {
             </TabsTrigger>
           </TabsList>
 
-          {/* Active Signals Tab */}
+          {/* Active Signals */}
           <TabsContent value="active">
             {activeSignals.length === 0 ? (
               <Card className="border-border/20 bg-card/40">
                 <CardContent className="flex flex-col items-center justify-center py-16">
                   <Activity className="mb-4 h-12 w-12 text-muted-foreground/30" />
-                  <p className="text-lg font-medium text-muted-foreground">No active signals</p>
-                  <p className="text-sm text-muted-foreground/60">New signals appear here in real-time</p>
+                  <p className="text-lg font-medium text-muted-foreground">Waiting for signals...</p>
+                  <p className="mb-4 text-sm text-muted-foreground/60">
+                    Technical analysis running on live data (RSI, MACD, EMA, BBands, ATR)
+                  </p>
+                  <button
+                    onClick={refreshSignals}
+                    disabled={refreshing}
+                    className="flex items-center gap-2 rounded-lg bg-emerald-500/20 px-4 py-2 text-sm font-medium text-emerald-400 transition-colors hover:bg-emerald-500/30"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+                    Run Analysis Now
+                  </button>
                 </CardContent>
               </Card>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {activeSignals.map((signal) => (
-                  <SignalCard
-                    key={signal.id}
-                    signal={signal}
-                    isNew={signal.id === newSignalId}
-                  />
+                  <SignalCard key={signal.id} signal={signal} isNew={signal.id === newSignalId} />
                 ))}
               </div>
             )}
           </TabsContent>
 
-          {/* History Tab */}
+          {/* Signal History */}
           <TabsContent value="history">
             {completedSignals.length === 0 ? (
               <Card className="border-border/20 bg-card/40">
                 <CardContent className="flex flex-col items-center justify-center py-16">
                   <BarChart3 className="mb-4 h-12 w-12 text-muted-foreground/30" />
-                  <p className="text-lg font-medium text-muted-foreground">No signal history</p>
-                  <p className="text-sm text-muted-foreground/60">Completed signals will appear here</p>
+                  <p className="text-lg font-medium text-muted-foreground">No signal history yet</p>
+                  <p className="text-sm text-muted-foreground/60">Completed signals (TP/SL hit) will appear here</p>
                 </CardContent>
               </Card>
             ) : (
@@ -473,69 +571,50 @@ export default function Home() {
                     <Table>
                       <TableHeader>
                         <TableRow className="border-border/30 hover:bg-transparent">
-                          <TableHead className="text-xs">Signal ID</TableHead>
+                          <TableHead className="text-xs">ID</TableHead>
                           <TableHead className="text-xs">Pair</TableHead>
                           <TableHead className="text-xs">Type</TableHead>
                           <TableHead className="text-xs text-right">Entry</TableHead>
                           <TableHead className="text-xs text-right">TP</TableHead>
                           <TableHead className="text-xs text-right">SL</TableHead>
+                          <TableHead className="text-xs">Confidence</TableHead>
                           <TableHead className="text-xs">Status</TableHead>
                           <TableHead className="text-xs text-right">Pips</TableHead>
                           <TableHead className="text-xs">Time</TableHead>
+                          <TableHead className="text-xs">Source</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {completedSignals.map((signal) => (
                           <TableRow key={signal.id} className="border-border/20">
-                            <TableCell className="font-mono text-xs text-muted-foreground">
-                              {signal.id}
-                            </TableCell>
-                            <TableCell className="text-xs font-bold text-foreground">
-                              {signal.pair}
-                            </TableCell>
+                            <TableCell className="font-mono text-[10px] text-muted-foreground">{signal.id.substring(0, 12)}</TableCell>
+                            <TableCell className="text-xs font-bold text-foreground">{signal.pair}</TableCell>
                             <TableCell>
-                              <Badge
-                                variant="outline"
-                                className={`text-[10px] font-bold ${
-                                  signal.type === "BUY"
-                                    ? "border-emerald-500/30 text-emerald-400"
-                                    : "border-rose-500/30 text-rose-400"
-                                }`}
-                              >
+                              <Badge variant="outline" className={`text-[10px] font-bold ${signal.type === "BUY" ? "border-emerald-500/30 text-emerald-400" : "border-rose-500/30 text-rose-400"}`}>
                                 {signal.type}
                               </Badge>
                             </TableCell>
-                            <TableCell className="text-right font-mono text-xs">
-                              {formatPrice(signal.entry, signal.pair)}
-                            </TableCell>
-                            <TableCell className="text-right font-mono text-xs text-emerald-400">
-                              {formatPrice(signal.tp, signal.pair)}
-                            </TableCell>
-                            <TableCell className="text-right font-mono text-xs text-rose-400">
-                              {formatPrice(signal.sl, signal.pair)}
+                            <TableCell className="text-right font-mono text-xs">{formatPrice(signal.entry, signal.pair)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs text-emerald-400">{formatPrice(signal.tp, signal.pair)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs text-rose-400">{formatPrice(signal.sl, signal.pair)}</TableCell>
+                            <TableCell className="text-xs">
+                              {signal.confidence ? <ConfidenceBar confidence={signal.confidence} /> : "—"}
                             </TableCell>
                             <TableCell>
-                              <Badge
-                                variant="outline"
-                                className={`text-[10px] font-bold ${
-                                  signal.status === "TP_HIT"
-                                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                                    : "border-rose-500/30 bg-rose-500/10 text-rose-400"
-                                }`}
-                              >
+                              <Badge variant="outline" className={`text-[10px] font-bold ${signal.status === "TP_HIT" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400" : "border-rose-500/30 bg-rose-500/10 text-rose-400"}`}>
                                 {signal.status === "TP_HIT" ? "TP HIT" : "SL HIT"}
                               </Badge>
                             </TableCell>
-                            <TableCell
-                              className={`text-right font-mono text-xs font-bold ${
-                                (signal.pips || 0) > 0 ? "text-emerald-400" : "text-rose-400"
-                              }`}
-                            >
-                              {(signal.pips || 0) > 0 ? "+" : ""}
-                              {signal.pips || 0} pips
+                            <TableCell className={`text-right font-mono text-xs font-bold ${(signal.pips || 0) > 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                              {(signal.pips || 0) > 0 ? "+" : ""}{signal.pips || 0} pips
                             </TableCell>
-                            <TableCell className="text-xs text-muted-foreground">
-                              {formatTime(signal.timestamp)}
+                            <TableCell className="text-[10px] text-muted-foreground">{formatTime(signal.timestamp)}</TableCell>
+                            <TableCell>
+                              {signal.source === "RapidAPI" ? (
+                                <Badge variant="outline" className="border-emerald-500/30 text-[9px] text-emerald-400">LIVE</Badge>
+                              ) : (
+                                <Badge variant="outline" className="border-amber-500/30 text-[9px] text-amber-400">SIM</Badge>
+                              )}
                             </TableCell>
                           </TableRow>
                         ))}
@@ -547,7 +626,7 @@ export default function Home() {
             )}
           </TabsContent>
 
-          {/* Market Watch Tab */}
+          {/* Market Watch */}
           <TabsContent value="market">
             {prices.length === 0 ? (
               <Card className="border-border/20 bg-card/40">
@@ -559,45 +638,27 @@ export default function Home() {
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {prices.map((p) => (
-                  <Card
-                    key={p.pair}
-                    className="border-border/30 bg-card/80 backdrop-blur transition-colors hover:border-border/60"
-                  >
+                  <Card key={p.pair} className="border-border/30 bg-card/80 backdrop-blur transition-colors hover:border-border/60">
                     <CardContent className="p-4">
                       <div className="mb-2 flex items-center justify-between">
                         <h3 className="text-sm font-bold text-foreground">{p.pair}</h3>
-                        <span
-                          className={`text-xs font-bold ${
-                            p.changePercent >= 0 ? "text-emerald-400" : "text-rose-400"
-                          }`}
-                        >
-                          {p.changePercent >= 0 ? "+" : ""}
-                          {p.changePercent.toFixed(3)}%
+                        <span className={`text-xs font-bold ${p.changePercent >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                          {p.changePercent >= 0 ? "+" : ""}{p.changePercent.toFixed(3)}%
                         </span>
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                            Bid
-                          </p>
-                          <p className="font-mono text-sm font-bold text-foreground">
-                            {formatPrice(p.bid, p.pair)}
-                          </p>
+                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Bid</p>
+                          <p className="font-mono text-sm font-bold text-foreground">{formatPrice(p.bid, p.pair)}</p>
                         </div>
                         <div>
-                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                            Ask
-                          </p>
-                          <p className="font-mono text-sm font-bold text-foreground">
-                            {formatPrice(p.ask, p.pair)}
-                          </p>
+                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Ask</p>
+                          <p className="font-mono text-sm font-bold text-foreground">{formatPrice(p.ask, p.pair)}</p>
                         </div>
                       </div>
                       <div className="mt-2 flex items-center justify-between border-t border-border/20 pt-2">
-                        <span className="text-[10px] text-muted-foreground">
-                          Spread: {p.spread}
-                        </span>
-                        {p.change >= 0 ? (
+                        <span className="text-[10px] text-muted-foreground">Spread: {p.spread}</span>
+                        {p.changePercent >= 0 ? (
                           <ArrowUpRight className="h-4 w-4 text-emerald-400" />
                         ) : (
                           <ArrowDownRight className="h-4 w-4 text-rose-400" />
@@ -612,7 +673,7 @@ export default function Home() {
         </Tabs>
       </main>
 
-      {/* ─── Footer ─── */}
+      {/* Footer */}
       <footer className="mt-auto border-t border-border/30 bg-card/40 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-col items-center gap-2 px-4 py-6 sm:flex-row sm:justify-between">
           <div className="flex items-center gap-2">
@@ -624,8 +685,7 @@ export default function Home() {
             </span>
           </div>
           <p className="text-xs text-muted-foreground">
-            Developed with{" "}
-            <span className="font-semibold text-emerald-400">nayondev</span> &bull; Real-time Forex Trading Signals
+            Developed with <span className="font-semibold text-emerald-400">nayondev</span> &bull; Real-time Forex Signals &bull; Powered by RapidAPI
           </p>
           <p className="text-[10px] text-muted-foreground/50">
             &copy; {new Date().getFullYear()} All rights reserved
