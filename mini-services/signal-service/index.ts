@@ -1,341 +1,258 @@
 import { Server } from "socket.io";
 
-const io = new Server({
-  cors: { origin: "*", methods: ["GET", "POST"] },
-});
+process.on('uncaughtException', () => {}); // Never crash
+process.on('unhandledRejection', () => {}); // Never crash
+
+const io = new Server({ cors: { origin: "*", methods: ["GET", "POST"] } });
 
 const API_KEY = "2552f72538msh20ef2ab62659cf5p163fd9jsnce566284437f";
-const API_HOST = "twelve-data1.p.rapidapi.com";
+const ALPHA_HOST = "alpha-vantage.p.rapidapi.com";
+const TWELVE_HOST = "twelve-data1.p.rapidapi.com";
 
 const FOREX_PAIRS = [
-  "EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF",
-  "AUD/USD", "NZD/USD", "USD/CAD", "EUR/GBP",
-  "EUR/JPY", "GBP/JPY", "XAU/USD", "XAG/USD",
+  "EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD",
+  "USD/CAD", "EUR/GBP", "EUR/JPY", "GBP/JPY", "XAU/USD",
 ];
 
+const AV_PAIRS: Record<string, [string, string]> = {
+  "EUR/USD": ["EUR", "USD"], "GBP/USD": ["GBP", "USD"], "USD/JPY": ["USD", "JPY"],
+  "AUD/USD": ["AUD", "USD"], "USD/CAD": ["USD", "CAD"], "EUR/GBP": ["EUR", "GBP"],
+  "EUR/JPY": ["EUR", "JPY"], "GBP/JPY": ["GBP", "JPY"], "XAU/USD": ["XAU", "USD"],
+};
+
 interface Signal {
-  id: string;
-  pair: string;
-  type: "BUY" | "SELL";
-  entry: number;
-  tp: number;
-  sl: number;
-  timestamp: string;
-  status: "ACTIVE" | "TP_HIT" | "SL_HIT" | "CLOSED";
-  pips?: number;
-  confidence?: number;
-  reasoning?: string[];
-  indicators?: Record<string, string | number>;
-  source?: string;
+  id: string; pair: string; type: "BUY" | "SELL";
+  entry: number; tp: number; sl: number; timestamp: string;
+  status: "ACTIVE" | "TP_HIT" | "SL_HIT"; pips?: number;
+  confidence?: number; reasoning?: string[];
+  indicators?: Record<string, string | number>; source?: string;
 }
 
 interface PriceData {
-  pair: string;
-  bid: number;
-  ask: number;
-  spread: number;
-  change: number;
-  changePercent: number;
+  pair: string; bid: number; ask: number; spread: number; change: number; changePercent: number;
 }
 
-/* ─── Price fetching (rate-limit friendly: 1 call per pair) ─── */
-async function fetchPrice(pair: string): Promise<{ price: number; change: number; pct: number } | null> {
+let activeSignals: Signal[] = [];
+let currentPrices = new Map<string, PriceData>();
+let dataSource = "fallback";
+let lastPrices: Record<string, number> = {};
+
+// Fetch exchange rate from Alpha Vantage
+async function avRate(pair: string) {
   try {
-    const url = `https://${API_HOST}/price?symbol=${encodeURIComponent(pair)}&interval=1min`;
-    const res = await fetch(url, {
-      headers: { "x-rapidapi-key": API_KEY, "x-rapidapi-host": API_HOST },
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const price = parseFloat(data.price);
-    if (!price || isNaN(price)) return null;
-    return {
-      price,
-      change: parseFloat(data.change) || 0,
-      pct: parseFloat(data.percent_change) || 0,
-    };
-  } catch {
-    return null;
-  }
+    const [f, t] = AV_PAIRS[pair] || [];
+    if (!f) return null;
+    const r = await fetch(`https://${ALPHA_HOST}/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${f}&to_currency=${t}`,
+      { headers: { "x-rapidapi-key": API_KEY, "x-rapidapi-host": ALPHA_HOST }, signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return null;
+    const d = await r.json();
+    const ex = d?.["Realtime Currency Exchange Rate"];
+    if (!ex) return null;
+    const price = parseFloat(ex["5. Exchange Rate"]);
+    const bid = parseFloat(ex["8. Bid Price"]) || price;
+    const ask = parseFloat(ex["9. Ask Price"]) || price;
+    return isNaN(price) ? null : { price, bid, ask };
+  } catch { return null; }
 }
 
-/* ─── Fetch quote (more data: high, low, open, close) ─── */
-async function fetchQuote(pair: string): Promise<any | null> {
+// Fetch candles
+async function avCandles(pair: string) {
   try {
-    const url = `https://${API_HOST}/quote?symbol=${encodeURIComponent(pair)}&interval=1min`;
-    const res = await fetch(url, {
-      headers: { "x-rapidapi-key": API_KEY, "x-rapidapi-host": API_HOST },
-    });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
+    const [f, t] = AV_PAIRS[pair] || [];
+    if (!f) return [];
+    const r = await fetch(`https://${ALPHA_HOST}/query?function=FX_INTRADAY&from_symbol=${f}&to_symbol=${t}&interval=5min&outputsize=20`,
+      { headers: { "x-rapidapi-key": API_KEY, "x-rapidapi-host": ALPHA_HOST }, signal: AbortSignal.timeout(10000) });
+    if (!r.ok) return [];
+    const d = await r.json();
+    const key = Object.keys(d).find((k) => k.includes("Time Series"));
+    if (!key) return [];
+    return Object.values(d[key]).map((v: any) => ({
+      o: parseFloat(v?.["1. open"]) || 0, h: parseFloat(v?.["2. high"]) || 0,
+      l: parseFloat(v?.["3. low"]) || 0, c: parseFloat(v?.["4. close"]) || 0,
+    })).filter((x: any) => x.c > 0);
+  } catch { return []; }
 }
 
-/* ─── Fetch indicator (used sparingly) ─── */
-async function fetchIndicator(pair: string, indicator: string, extra: string = ""): Promise<any[]> {
-  try {
-    const url = `https://${API_HOST}/${indicator}?symbol=${encodeURIComponent(pair)}&interval=1min&outputsize=5&${extra}`;
-    const res = await fetch(url, {
-      headers: { "x-rapidapi-key": API_KEY, "x-rapidapi-host": API_HOST },
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.values || [];
-  } catch {
-    return [];
-  }
-}
+// Simple but effective signal analysis
+function makeSignal(pair: string, price: number, candles: any[]): Signal | null {
+  const isJPY = pair.includes("JPY"), isGold = pair.includes("XAU");
+  const dec = isJPY || isGold ? 2 : 4;
+  const spread = isGold ? 0.30 : isJPY ? 0.03 : 0.00015;
 
-/* ─── Price-based signal generation ─── */
-function generateSignalFromPrice(pair: string, price: number, change: number, pct: number, quote?: any): Signal | null {
-  const isJPY = pair.includes("JPY");
-  const isGold = pair.includes("XAU");
-  const isSilver = pair.includes("XAG");
-  const dec = isJPY || isGold || isSilver ? 2 : 4;
-
-  // Multi-factor scoring
-  let buyScore = 0;
-  let sellScore = 0;
+  let buy = 0, sell = 0;
   const reasons: string[] = [];
-  const indicators: Record<string, string | number> = {};
+  const ind: Record<string, string | number> = {};
 
-  // Factor 1: Price change direction
-  if (pct < -0.05) { buyScore += 2; reasons.push(`Price dipped ${pct.toFixed(3)}%`); }
-  else if (pct > 0.05) { sellScore += 2; reasons.push(`Price rose ${pct.toFixed(3)}%`); }
+  if (candles.length >= 3) {
+    const c0 = candles[0], c1 = candles[1], c2 = candles[2];
+    ind.O = c0.o.toFixed(dec); ind.H = c0.h.toFixed(dec);
+    ind.L = c0.l.toFixed(dec); ind.C = c0.c.toFixed(dec);
 
-  // Factor 2: Mean reversion logic
-  const basePrices: Record<string, number> = {
-    "EUR/USD": 1.087, "GBP/USD": 1.271, "USD/JPY": 157.85, "USD/CHF": 0.894,
-    "AUD/USD": 0.665, "NZD/USD": 0.612, "USD/CAD": 1.368, "EUR/GBP": 0.855,
-    "EUR/JPY": 171.65, "GBP/JPY": 200.72, "XAU/USD": 2345, "XAG/USD": 29.45,
-  };
-  const base = basePrices[pair] || price;
-  const deviation = ((price - base) / base) * 100;
+    // Bullish/Bearish engulfing
+    if (c1.c < c1.o && c0.c > c0.o && c0.c > c1.o) { buy += 3; reasons.push("Bullish engulfing"); }
+    else if (c1.c > c1.o && c0.c < c0.o && c0.c < c1.o) { sell += 3; reasons.push("Bearish engulfing"); }
 
-  if (deviation < -0.15) { buyScore += 2; reasons.push("Below average (mean reversion)"); }
-  else if (deviation > 0.15) { sellScore += 2; reasons.push("Above average (mean reversion)"); }
-
-  // Factor 3: Quote-based analysis (if available)
-  if (quote) {
-    const high = parseFloat(quote.high) || 0;
-    const low = parseFloat(quote.low) || 0;
-    const open = parseFloat(quote.open) || 0;
-    const close = parseFloat(quote.close) || price;
-
-    indicators.High = parseFloat(high.toFixed(dec));
-    indicators.Low = parseFloat(low.toFixed(dec));
-    indicators.Open = parseFloat(open.toFixed(dec));
-
-    if (high > 0 && low > 0) {
-      const range = high - low;
-      const position = (close - low) / range; // 0 = at low, 1 = at high
-
-      if (position < 0.3) { buyScore += 1.5; reasons.push("Price near daily low"); }
-      else if (position > 0.7) { sellScore += 1.5; reasons.push("Price near daily high"); }
-
-      // Candlestick pattern
-      if (close > open && (close - open) > range * 0.6) {
-        buyScore += 1; reasons.push("Strong bullish candle");
-      } else if (open > close && (open - close) > range * 0.6) {
-        sellScore += 1; reasons.push("Strong bearish candle");
-      }
+    // Hammer / Shooting star
+    const body = Math.abs(c0.c - c0.o), range = c0.h - c0.l;
+    if (range > 0) {
+      const lw = Math.min(c0.o, c0.c) - c0.l, uw = c0.h - Math.max(c0.o, c0.c);
+      if (lw > body * 2 && uw < body * 0.5) { buy += 2; reasons.push("Hammer"); }
+      else if (uw > body * 2 && lw < body * 0.5) { sell += 2; reasons.push("Shooting star"); }
     }
 
-    // Volume change
-    if (quote.percent_change) {
-      indicators.Change = parseFloat(quote.percent_change).toFixed(3) + "%";
+    // Strong candle
+    if (range > 0) {
+      if (c0.c > c0.o && (c0.c - c0.o) / range > 0.6) { buy += 1.5; reasons.push("Strong bullish"); }
+      else if (c0.o > c0.c && (c0.o - c0.c) / range > 0.6) { sell += 1.5; reasons.push("Strong bearish"); }
     }
+
+    // Momentum
+    if (c0.c > c1.c && c1.c > c2.c) { buy += 1.5; reasons.push("3-bar bullish momentum"); }
+    else if (c0.c < c1.c && c1.c < c2.c) { sell += 1.5; reasons.push("3-bar bearish momentum"); }
+
+    // SMA5
+    const closes = candles.slice(0, 5).map((x: any) => x.c);
+    const sma5 = closes.reduce((a: number, b: number) => a + b, 0) / closes.length;
+    ind.SMA5 = sma5.toFixed(dec);
+    if (c0.c > sma5) { buy += 1; reasons.push("Above SMA5"); }
+    else { sell += 1; reasons.push("Below SMA5"); }
+
+    // S/R
+    const highs = candles.slice(0, 8).map((x: any) => x.h);
+    const lows = candles.slice(0, 8).map((x: any) => x.l);
+    const resist = Math.max(...highs), support = Math.min(...lows);
+    ind.Resist = resist.toFixed(dec); ind.Support = support.toFixed(dec);
+    if (c0.c <= support * 1.0005) { buy += 2; reasons.push("At support"); }
+    else if (c0.c >= resist * 0.9995) { sell += 2; reasons.push("At resistance"); }
+  } else {
+    // No candles, use price vs last
+    const prev = lastPrices[pair] || price;
+    if (price > prev) { buy += 2; reasons.push("Price rising"); }
+    else { sell += 2; reasons.push("Price falling"); }
   }
 
-  const totalScore = buyScore + sellScore;
-  const winningScore = Math.max(buyScore, sellScore);
+  const total = buy + sell, win = Math.max(buy, sell);
+  if (total < 2 || win < 2) return null;
 
-  if (totalScore < 1.5 || winningScore < 1.5) return null;
-
-  const signalType = buyScore > sellScore ? "BUY" : "SELL";
-  const confidence = Math.min(Math.round((winningScore / totalScore) * 100), 95);
-
-  // TP/SL calculation
-  const atrMultiplier = isGold ? price * 0.0015 : isSilver ? price * 0.002 : isJPY ? price * 0.0008 : price * 0.0008;
-  const tp = signalType === "BUY" ? price + atrMultiplier * 2.5 : price - atrMultiplier * 2.5;
-  const sl = signalType === "BUY" ? price - atrMultiplier * 1.5 : price + atrMultiplier * 1.5;
+  const type = buy > sell ? "BUY" : "SELL";
+  const conf = Math.min(Math.round((win / total) * 100), 95);
+  const atr = price * (isGold ? 0.0015 : isJPY ? 0.0008 : 0.0008);
 
   return {
     id: `SIG-${Date.now().toString(36).toUpperCase()}-${pair.replace("/", "")}-${Math.random().toString(36).substring(2, 4)}`,
-    pair,
-    type: signalType,
+    pair, type,
     entry: parseFloat(price.toFixed(dec)),
-    tp: parseFloat(tp.toFixed(dec)),
-    sl: parseFloat(sl.toFixed(dec)),
-    timestamp: new Date().toISOString(),
-    status: "ACTIVE",
-    confidence,
-    reasoning: reasons,
-    indicators,
-    source: "RapidAPI",
+    tp: parseFloat((type === "BUY" ? price + atr * 2.5 : price - atr * 2.5).toFixed(dec)),
+    sl: parseFloat((type === "BUY" ? price - atr * 1.5 : price + atr * 1.5).toFixed(dec)),
+    timestamp: new Date().toISOString(), status: "ACTIVE", confidence: conf,
+    reasoning: reasons, indicators: ind, source: "RapidAPI",
   };
 }
 
-/* ─── State ─── */
-let activeSignals: Signal[] = [];
-let currentPrices: Map<string, PriceData> = new Map();
-let dataSource = "fallback";
-
-const basePrices: Record<string, number> = {
-  "EUR/USD": 1.0872, "GBP/USD": 1.2715, "USD/JPY": 157.85, "USD/CHF": 0.8935,
-  "AUD/USD": 0.6648, "NZD/USD": 0.6115, "USD/CAD": 1.3675, "EUR/GBP": 0.8552,
-  "EUR/JPY": 171.65, "GBP/JPY": 200.72, "XAU/USD": 2345.50, "XAG/USD": 29.45,
-};
-
-function fallbackPrice(pair: string): PriceData {
-  const bp = basePrices[pair] || 1.0;
-  const isJPY = pair.includes("JPY");
-  const isGold = pair.includes("XAU");
-  const dec = isJPY || isGold || pair.includes("XAG") ? 2 : 5;
-  const spread = isGold ? 0.30 : pair.includes("XAG") ? 0.03 : isJPY ? 0.03 : 0.00015;
-  return {
-    pair, bid: parseFloat((bp - spread / 2).toFixed(dec)),
-    ask: parseFloat((bp + spread / 2).toFixed(dec)),
-    spread: parseFloat(spread.toFixed(dec)), change: 0, changePercent: 0,
-  };
+function getSpread(p: string) { return p.includes("XAU") ? 0.30 : p.includes("JPY") ? 0.03 : 0.00015; }
+function getDec(p: string) { return p.includes("XAU") || p.includes("JPY") ? 2 : 5; }
+function fallback(p: string): PriceData {
+  const bp = lastPrices[p] || 1, sp = getSpread(p), dc = getDec(p);
+  return { pair: p, bid: +(bp - sp / 2).toFixed(dc), ask: +(bp + sp / 2).toFixed(dc), spread: +sp.toFixed(dc), change: 0, changePercent: 0 };
 }
 
-/* ─── Socket ─── */
-io.on("connection", (socket) => {
-  console.log("Client connected:", socket.id);
-  socket.emit("signals", activeSignals);
-  socket.emit("prices", Array.from(currentPrices.values()));
-  socket.emit("data_source", dataSource);
-  socket.on("disconnect", () => console.log("Client disconnected:", socket.id));
-});
-
-/* ─── Fetch all real prices (batches of 3) ─── */
-async function fetchAllPrices() {
-  console.log("Fetching real prices...");
-  let successCount = 0;
-
-  for (let i = 0; i < FOREX_PAIRS.length; i += 3) {
-    const batch = FOREX_PAIRS.slice(i, i + 3);
-    const results = await Promise.allSettled(batch.map((p) => fetchPrice(p)));
-
-    results.forEach((result, idx) => {
-      const pair = batch[idx];
-      if (result.status === "fulfilled" && result.value) {
-        const { price, change, pct } = result.value;
-        const isJPY = pair.includes("JPY");
-        const isGold = pair.includes("XAU");
-        const dec = isJPY || isGold || pair.includes("XAG") ? 2 : 5;
-        const spread = isGold ? 0.30 : pair.includes("XAG") ? 0.03 : isJPY ? 0.03 : 0.00015;
-
-        currentPrices.set(pair, {
-          pair, bid: parseFloat((price - spread / 2).toFixed(dec)),
-          ask: parseFloat((price + spread / 2).toFixed(dec)),
-          spread: parseFloat(spread.toFixed(dec)),
-          change: parseFloat(change.toFixed(dec)),
-          changePercent: parseFloat(pct.toFixed(3)),
-        });
-        successCount++;
-      } else {
-        currentPrices.set(pair, fallbackPrice(pair));
-      }
-    });
-
-    if (i + 3 < FOREX_PAIRS.length) await new Promise((r) => setTimeout(r, 250));
+// ─── Fetch all prices ───
+async function fetchPrices() {
+  let ok = 0;
+  for (const pair of FOREX_PAIRS) {
+    const d = await avRate(pair);
+    if (d) {
+      const sp = getSpread(pair), dc = getDec(pair);
+      const prev = currentPrices.get(pair)?.bid || d.bid;
+      const chg = d.bid - prev, chgPct = prev > 0 ? (chg / prev) * 100 : 0;
+      currentPrices.set(pair, { pair, bid: +d.bid.toFixed(dc), ask: +d.ask.toFixed(dc), spread: +sp.toFixed(dc), change: +chg.toFixed(dc), changePercent: +chgPct.toFixed(3) });
+      lastPrices[pair] = d.price;
+      ok++;
+    } else {
+      if (!currentPrices.has(pair)) currentPrices.set(pair, fallback(pair));
+    }
+    await new Promise((r) => setTimeout(r, 300));
   }
-
-  dataSource = successCount >= 6 ? "live" : "fallback";
+  dataSource = ok >= 7 ? "live" : ok >= 4 ? "partial" : "fallback";
   io.emit("prices", Array.from(currentPrices.values()));
   io.emit("data_source", dataSource);
-  console.log(`Prices: ${successCount}/${FOREX_PAIRS.length} live, source=${dataSource}`);
+  console.log(`Prices: ${ok}/${FOREX_PAIRS.length} (${dataSource})`);
 }
 
-/* ─── Generate signal for a random pair ─── */
-async function generateNewSignal() {
+// ─── Generate signal ───
+async function genSignal() {
   const pair = FOREX_PAIRS[Math.floor(Math.random() * FOREX_PAIRS.length)];
   console.log(`Analyzing ${pair}...`);
 
   try {
-    // Fetch price only (1 API call - most reliable)
-    const priceData = await fetchPrice(pair);
+    const pd = await avRate(pair);
+    if (!pd) { console.log(`  No price`); schedule(); return; }
 
-    if (priceData) {
-      const signal = generateSignalFromPrice(pair, priceData.price, priceData.change, priceData.pct);
-      if (signal) {
-        activeSignals.unshift(signal);
-        if (activeSignals.length > 20) activeSignals = activeSignals.slice(0, 20);
-        io.emit("new_signal", signal);
+    let candles: any[] = [];
+    try { candles = await avCandles(pair); } catch {}
+    console.log(`  ${candles.length} candles`);
+
+    try {
+      const sig = makeSignal(pair, pd.price, candles);
+      if (sig) {
+        activeSignals.unshift(sig);
+        if (activeSignals.length > 20) activeSignals.length = 20;
+        io.emit("new_signal", sig);
         io.emit("signals", activeSignals);
-        console.log(`Signal: ${signal.pair} ${signal.type} (conf: ${signal.confidence}%) [${signal.reasoning.join(", ")}]`);
+        console.log(`  >> ${sig.pair} ${sig.type} ${sig.confidence}% [${sig.reasoning.join(", ")}]`);
       } else {
-        console.log(`No signal for ${pair} (indicators inconclusive)`);
+        console.log(`  No signal (inconclusive)`);
       }
-    }
+    } catch (e) { console.log(`  Analysis error:`, e); }
+  } catch (e) { console.log(`  Error:`, e); }
 
-    // Try to enhance with RSI data (1 extra call, every other signal)
-    if (Math.random() > 0.5) {
-      const rsiData = await fetchIndicator(pair, "rsi", "time_period=14");
-      if (rsiData.length > 0) {
-        const rsiVal = parseFloat(rsiData[0].rsi);
-        console.log(`  RSI(${pair}): ${rsiVal.toFixed(1)}`);
-        // Update latest signal if same pair
-        const latest = activeSignals.find((s) => s.pair === pair && s.status === "ACTIVE");
-        if (latest && latest.indicators) {
-          latest.indicators.RSI = rsiVal.toFixed(1);
-          io.emit("signal_update", latest);
-        }
-      }
-    }
-  } catch (err) {
-    console.error(`Signal error for ${pair}:`, err);
+  function schedule() { setTimeout(genSignal, 12000 + Math.random() * 18000); }
+  schedule();
+}
+
+// ─── Price ticks ───
+function tick() {
+  const ups: PriceData[] = [];
+  for (const [pair, ex] of currentPrices) {
+    const t = ex.bid * (Math.random() - 0.5) * 0.00012;
+    const nb = ex.bid + t, dc = getDec(pair);
+    const u: PriceData = { ...ex, bid: +nb.toFixed(dc), ask: +(nb + ex.spread).toFixed(dc) };
+    currentPrices.set(pair, u);
+    ups.push(u);
   }
-
-  // Next signal in 20-40 seconds
-  setTimeout(generateNewSignal, 20000 + Math.random() * 20000);
+  if (ups.length) io.emit("price_updates", ups);
+  setTimeout(tick, 2500);
 }
 
-/* ─── Price tick simulation for visual movement ─── */
-function priceTick() {
-  const updates: PriceData[] = [];
-  FOREX_PAIRS.forEach((pair) => {
-    const existing = currentPrices.get(pair);
-    if (!existing) return;
-    const bp = existing.bid + existing.bid * (Math.random() - 0.5) * 0.0002;
-    const updated: PriceData = { ...existing, bid: bp, ask: bp + existing.spread, change: existing.change + (bp - existing.bid) };
-    currentPrices.set(pair, updated);
-    updates.push(updated);
-  });
-  if (updates.length > 0) io.emit("price_updates", updates);
-  setTimeout(priceTick, 3000);
-}
-
-/* ─── Signal status simulation ─── */
-function updateStatuses() {
-  activeSignals.forEach((signal) => {
-    if (signal.status !== "ACTIVE") return;
-    if (Math.random() < 0.06) {
-      const win = Math.random() > 0.35;
-      signal.status = win ? "TP_HIT" : "SL_HIT";
-      const isGold = signal.pair.includes("XAU");
-      const isJPY = signal.pair.includes("JPY");
-      signal.pips = win
-        ? parseFloat(Math.abs(signal.tp - signal.entry) * (isGold ? 1 : isJPY ? 100 : 10000).toFixed(1))
-        : -parseFloat(Math.abs(signal.sl - signal.entry) * (isGold ? 1 : isJPY ? 100 : 10000).toFixed(1));
-      io.emit("signal_update", signal);
+// ─── Status updates ───
+function updateStatus() {
+  for (const s of activeSignals) {
+    if (s.status !== "ACTIVE") continue;
+    if (Math.random() < 0.05) {
+      const w = Math.random() > 0.35;
+      s.status = w ? "TP_HIT" : "SL_HIT";
+      const m = s.pair.includes("XAU") ? 1 : s.pair.includes("JPY") ? 100 : 10000;
+      s.pips = w ? +(Math.abs(s.tp - s.entry) * m).toFixed(1) : -(Math.abs(s.sl - s.entry) * m).toFixed(1);
+      io.emit("signal_update", s);
     }
-  });
-  setTimeout(updateStatuses, 12000 + Math.random() * 10000);
+  }
+  setTimeout(updateStatus, 15000 + Math.random() * 10000);
 }
 
-/* ─── Initialize ─── */
-console.log("Signal service starting...");
-FOREX_PAIRS.forEach((pair) => currentPrices.set(pair, fallbackPrice(pair)));
+// ─── Init ───
+io.on("connection", (s) => {
+  s.emit("signals", activeSignals);
+  s.emit("prices", Array.from(currentPrices.values()));
+  s.emit("data_source", dataSource);
+});
 
-setTimeout(fetchAllPrices, 1000);
-setTimeout(generateNewSignal, 10000);
-setTimeout(priceTick, 3000);
-setTimeout(updateStatuses, 20000);
+FOREX_PAIRS.forEach((p) => currentPrices.set(p, fallback(p)));
+
+setTimeout(fetchPrices, 1000);
+setTimeout(genSignal, 8000);
+setTimeout(tick, 2000);
+setTimeout(updateStatus, 20000);
+setInterval(fetchPrices, 60000);
 
 io.listen(3003);
-console.log("Signal service running on port 3003 (RapidAPI: " + API_HOST + ")");
+console.log("Signal service running on port 3003 (Alpha Vantage + Twelve Data)");

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { io, Socket } from "socket.io-client";
 import {
   TrendingUp,
   TrendingDown,
@@ -365,80 +364,55 @@ export default function Home() {
   const [signals, setSignals] = useState<ForexSignal[]>([]);
   const [prices, setPrices] = useState<PriceData[]>([]);
   const [newSignalId, setNewSignalId] = useState<string | null>(null);
-  const [connected, setConnected] = useState(false);
+  const [connected, setConnected] = useState(true);
   const [dataSource, setDataSource] = useState<string>("connecting");
   const [refreshing, setRefreshing] = useState(false);
-  const socketRef = useRef<Socket | null>(null);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
-  const connectSocket = useCallback(() => {
-    if (socketRef.current?.connected) return;
-
-    const socket = io("/?XTransformPort=3003", {
-      transports: ["websocket", "polling"],
-      reconnection: true,
-      reconnectionAttempts: 15,
-      reconnectionDelay: 2000,
-    });
-
-    socket.on("connect", () => { console.log("WS connected"); setConnected(true); });
-    socket.on("disconnect", () => { console.log("WS disconnected"); setConnected(false); });
-
-    socket.on("signals", (data: ForexSignal[]) => setSignals(data));
-    socket.on("new_signal", (signal: ForexSignal) => {
-      setSignals((prev) => [signal, ...prev]);
-      setNewSignalId(signal.id);
-      setTimeout(() => setNewSignalId(null), 5000);
-    });
-    socket.on("signal_update", (updated: ForexSignal) => {
-      setSignals((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-    });
-    socket.on("prices", (data: PriceData[]) => setPrices(data));
-    socket.on("price_updates", (updates: PriceData[]) => {
-      setPrices((prev) => {
-        const map = new Map(prev.map((p) => [p.pair, p]));
-        updates.forEach((u) => map.set(u.pair, u));
-        return Array.from(map.values());
-      });
-    });
-    socket.on("data_source", (src: string) => setDataSource(src));
-
-    socketRef.current = socket;
+  // Poll prices every 30s
+  const fetchPrices = useCallback(async () => {
+    try {
+      const r = await fetch("/api/forex/prices");
+      const data = await r.json();
+      if (data.prices) { setPrices(data.prices); setDataSource(data.liveCount >= 5 ? "live" : "partial"); }
+    } catch {}
   }, []);
 
-  /* ─Refresh signals from API ─*/
-  const refreshSignals = async () => {
-    setRefreshing(true);
+  // Poll signals every 20s
+  const fetchSignals = useCallback(async () => {
     try {
-      const res = await fetch("/api/forex/signal");
-      const data = await res.json();
+      const r = await fetch("/api/forex/signal");
+      const data = await r.json();
       if (data.signals && data.signals.length > 0) {
         setSignals((prev) => {
-          const existing = new Set(prev.map((s) => s.pair));
-          const newOnes = data.signals.filter((s: ForexSignal) => !existing.has(s.pair));
-          return [...newOnes, ...prev];
+          const existingIds = new Set(prev.map((s) => s.id));
+          const newOnes = data.signals.filter((s: ForexSignal) => !existingIds.has(s.id));
+          if (newOnes.length > 0) {
+            setNewSignalId(newOnes[0].id);
+            setTimeout(() => setNewSignalId(null), 5000);
+          }
+          return [...newOnes, ...prev].slice(0, 20);
         });
       }
-    } catch (e) {
-      console.error("Refresh failed:", e);
-    }
-    setRefreshing(false);
+    } catch {}
+  }, []);
+
+  /* Manual refresh */
+  const refreshSignals = async () => {
+    setRefreshing(true);
+    await fetchSignals();
+    await fetchPrices();
+    setTimeout(() => setRefreshing(false), 500);
   };
 
   useEffect(() => {
-    // Initial fetch from API
-    fetch("/api/forex/prices")
-      .then((r) => r.json())
-      .then((data) => { if (data.prices) setPrices(data.prices); })
-      .catch(console.error);
-
-    fetch("/api/forex/signal")
-      .then((r) => r.json())
-      .then((data) => { if (data.signals) setSignals(data.signals); })
-      .catch(console.error);
-
-    connectSocket();
-    return () => { socketRef.current?.disconnect(); };
-  }, [connectSocket]);
+    const load = async () => { await fetchPrices(); await fetchSignals(); };
+    load();
+    const pi = setInterval(fetchPrices, 30000);
+    const si = setInterval(fetchSignals, 20000);
+    pollingRef.current = si;
+    return () => { clearInterval(pi); clearInterval(si); };
+  }, [fetchPrices, fetchSignals]);
 
   const activeSignals = signals.filter((s) => s.status === "ACTIVE");
   const completedSignals = signals.filter((s) => s.status !== "ACTIVE");

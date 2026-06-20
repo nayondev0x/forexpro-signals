@@ -1,177 +1,146 @@
 import { NextResponse } from "next/server";
-import { getRealPrice, getIndicator, FOREX_PAIRS } from "@/lib/rapidapi";
 
-// Simple in-memory cache to avoid rate limits
-const cache = new Map<string, { data: any; ts: number }>();
-const CACHE_TTL = 120_000; // 2 minutes
+const ALPHA_KEY = process.env.ALPHA_VANTAGE_API_KEY!;
+const ALPHA_HOST = process.env.ALPHA_VANTAGE_API_HOST!;
 
-function cached<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  const existing = cache.get(key);
-  if (existing && Date.now() - existing.ts < CACHE_TTL) {
-    return Promise.resolve(existing.data);
-  }
-  return fn().then((data) => {
-    cache.set(key, { data, ts: Date.now() });
-    return data;
-  });
-}
+const PAIRS = [
+  { pair: "EUR/USD", from: "EUR", to: "USD" },
+  { pair: "GBP/USD", from: "GBP", to: "USD" },
+  { pair: "USD/JPY", from: "USD", to: "JPY" },
+  { pair: "AUD/USD", from: "AUD", to: "USD" },
+  { pair: "USD/CAD", from: "USD", to: "CAD" },
+  { pair: "EUR/GBP", from: "EUR", to: "GBP" },
+  { pair: "EUR/JPY", from: "EUR", to: "JPY" },
+  { pair: "GBP/JPY", from: "GBP", to: "JPY" },
+  { pair: "XAU/USD", from: "XAU", to: "USD" },
+];
 
-export async function GET() {
+// Cache: store last generated signals, refresh every 60s
+let cachedSignals: any[] = [];
+let lastSignalTime = 0;
+const SIGNAL_TTL = 60000; // 60 seconds
+
+async function avRate(from: string, to: string) {
   try {
-    // Analyze pairs sequentially to respect rate limits
-    const signals: any[] = [];
-    for (const pair of FOREX_PAIRS.slice(0, 8)) {
-      try {
-        const signal = await generateSignalForPair(pair);
-        if (signal) signals.push(signal);
-        // Delay between pairs to avoid rate limit
-        await new Promise((r) => setTimeout(r, 500));
-      } catch (e) {
-        console.error(`Error analyzing ${pair}:`, e);
-      }
-    }
-
-    if (signals.length === 0) {
-      return NextResponse.json({ source: "fallback", signals: generateFallbackSignals() });
-    }
-
-    return NextResponse.json({ source: "real", signals });
-  } catch (error) {
-    console.error("Signal engine error:", error);
-    return NextResponse.json(
-      { source: "fallback", signals: generateFallbackSignals() },
-      { status: 200 }
+    const r = await fetch(
+      `https://${ALPHA_HOST}/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${from}&to_currency=${to}`,
+      { headers: { "x-rapidapi-key": ALPHA_KEY, "x-rapidapi-host": ALPHA_HOST }, signal: AbortSignal.timeout(8000) }
     );
-  }
+    const d = await r.json();
+    const ex = d?.["Realtime Currency Exchange Rate"];
+    if (!ex) return null;
+    const price = parseFloat(ex["5. Exchange Rate"]);
+    return isNaN(price) ? null : { price, bid: parseFloat(ex["8. Bid Price"]) || price, ask: parseFloat(ex["9. Ask Price"]) || price };
+  } catch { return null; }
 }
 
-/* ─── Technical Analysis Signal Generator ─── */
-async function generateSignalForPair(pair: string) {
-  // Fetch price + only 2 indicators (RSI + MACD) to minimize API calls
-  const [priceData, rsiData, macdData] = await Promise.all([
-    cached(`price-${pair}`, () => getRealPrice(pair)),
-    cached(`rsi-${pair}`, () => getIndicator(pair, "rsi", { time_period: "14" })),
-    cached(`macd-${pair}`, () => getIndicator(pair, "macd")),
-  ]);
+async function avCandles(from: string, to: string) {
+  try {
+    const r = await fetch(
+      `https://${ALPHA_HOST}/query?function=FX_INTRADAY&from_symbol=${from}&to_symbol=${to}&interval=5min&outputsize=20`,
+      { headers: { "x-rapidapi-key": ALPHA_KEY, "x-rapidapi-host": ALPHA_HOST }, signal: AbortSignal.timeout(10000) }
+    );
+    const d = await r.json();
+    const key = Object.keys(d).find((k) => k.includes("Time Series"));
+    if (!key) return [];
+    return Object.values(d[key]).map((v: any) => ({
+      o: parseFloat(v?.["1. open"]) || 0, h: parseFloat(v?.["2. high"]) || 0,
+      l: parseFloat(v?.["3. low"]) || 0, c: parseFloat(v?.["4. close"]) || 0,
+    })).filter((x) => x.c > 0);
+  } catch { return []; }
+}
 
-  if (!priceData || !priceData.price) return null;
+function getDec(p: string) { return p.includes("XAU") || p.includes("JPY") ? 2 : 4; }
 
-  const analysis = analyzeIndicators(rsiData, macdData, priceData.price, pair);
-  if (!analysis.shouldSignal) return null;
+function analyze(pair: string, price: number, candles: any[]) {
+  const dec = getDec(pair);
+  if (candles.length < 3) return null;
 
-  const dec = getDecimals(pair);
-  const atrValue = analysis.atrValue || (pair.includes("XAU") ? priceData.price * 0.002 : priceData.price * 0.001);
+  let buy = 0, sell = 0;
+  const reasons: string[] = [];
+  const ind: Record<string, string | number> = {};
+  const c0 = candles[0], c1 = candles[1], c2 = candles[2];
+
+  ind.O = c0.o.toFixed(dec); ind.H = c0.h.toFixed(dec);
+  ind.L = c0.l.toFixed(dec); ind.C = c0.c.toFixed(dec);
+
+  // Patterns
+  if (c1.c < c1.o && c0.c > c0.o && c0.c > c1.o) { buy += 3; reasons.push("Bullish engulfing"); }
+  else if (c1.c > c1.o && c0.c < c0.o && c0.c < c1.o) { sell += 3; reasons.push("Bearish engulfing"); }
+
+  const body = Math.abs(c0.c - c0.o), range = c0.h - c0.l;
+  if (range > 0) {
+    const lw = Math.min(c0.o, c0.c) - c0.l, uw = c0.h - Math.max(c0.o, c0.c);
+    if (lw > body * 2 && uw < body * 0.5) { buy += 2; reasons.push("Hammer"); }
+    else if (uw > body * 2 && lw < body * 0.5) { sell += 2; reasons.push("Shooting star"); }
+    if (c0.c > c0.o && body / range > 0.6) { buy += 1.5; reasons.push("Strong bullish candle"); }
+    else if (c0.o > c0.c && body / range > 0.6) { sell += 1.5; reasons.push("Strong bearish candle"); }
+  }
+
+  const cls = candles.slice(0, 5).map((x) => x.c);
+  const sma5 = cls.reduce((a, b) => a + b, 0) / cls.length;
+  ind.SMA5 = sma5.toFixed(dec);
+  if (c0.c > sma5) { buy += 1; reasons.push("Above SMA5"); } else { sell += 1; reasons.push("Below SMA5"); }
+
+  if (c0.c > c1.c && c1.c > c2.c) { buy += 1.5; reasons.push("Bullish momentum"); }
+  else if (c0.c < c1.c && c1.c < c2.c) { sell += 1.5; reasons.push("Bearish momentum"); }
+
+  const hs = candles.slice(0, 10).map((x) => x.h), ls = candles.slice(0, 10).map((x) => x.l);
+  const res = Math.max(...hs), sup = Math.min(...ls);
+  ind.Resist = res.toFixed(dec); ind.Support = sup.toFixed(dec);
+  if (c0.c <= sup * 1.0005) { buy += 2; reasons.push("At support"); }
+  else if (c0.c >= res * 0.9995) { sell += 2; reasons.push("At resistance"); }
+
+  const total = buy + sell, win = Math.max(buy, sell);
+  if (total < 2 || win < 2) return null;
+
+  const type = buy > sell ? "BUY" : "SELL";
+  const conf = Math.min(Math.round((win / total) * 100), 95);
+  const atr = price * (pair.includes("XAU") ? 0.0015 : pair.includes("JPY") ? 0.0008 : 0.0008);
 
   return {
     id: `SIG-${Date.now().toString(36).toUpperCase()}-${pair.replace("/", "")}`,
-    pair,
-    type: analysis.signalType,
-    entry: parseFloat(priceData.price.toFixed(dec)),
-    tp: parseFloat(
-      (analysis.signalType === "BUY" ? priceData.price + atrValue * 2 : priceData.price - atrValue * 2).toFixed(dec)
-    ),
-    sl: parseFloat(
-      (analysis.signalType === "BUY" ? priceData.price - atrValue * 1.5 : priceData.price + atrValue * 1.5).toFixed(dec)
-    ),
-    timestamp: new Date().toISOString(),
-    status: "ACTIVE" as const,
-    confidence: analysis.confidence,
-    reasoning: analysis.reasoning,
-    indicators: analysis.indicatorSummary,
-    priceData: {
-      bid: priceData.bid,
-      ask: priceData.ask,
-      high: priceData.high,
-      low: priceData.low,
-      open: priceData.open,
-    },
-    source: "RapidAPI",
+    pair, type,
+    entry: +price.toFixed(dec),
+    tp: +(type === "BUY" ? price + atr * 2.5 : price - atr * 2.5).toFixed(dec),
+    sl: +(type === "BUY" ? price - atr * 1.5 : price + atr * 1.5).toFixed(dec),
+    timestamp: new Date().toISOString(), status: "ACTIVE", confidence: conf,
+    reasoning: reasons, indicators: ind, source: "RapidAPI",
   };
 }
 
-function analyzeIndicators(
-  rsiRaw: any,
-  macdRaw: any,
-  currentPrice: number,
-  pair: string
-) {
-  let buyScore = 0;
-  let sellScore = 0;
-  const reasons: string[] = [];
-  const indicatorSummary: Record<string, string | number> = {};
-
-  const rsi = rsiRaw?.values || [];
-  const macd = macdRaw?.values || [];
-  const dec = getDecimals(pair);
-
-  // RSI Analysis
-  if (rsi.length > 0) {
-    const rsiVal = parseFloat(rsi[0]?.rsi || "50");
-    indicatorSummary.RSI = rsiVal.toFixed(1);
-    if (rsiVal < 30) { buyScore += 3; reasons.push(`RSI oversold (${rsiVal.toFixed(1)})`); }
-    else if (rsiVal < 40) { buyScore += 1.5; reasons.push(`RSI low (${rsiVal.toFixed(1)})`); }
-    else if (rsiVal > 70) { sellScore += 3; reasons.push(`RSI overbought (${rsiVal.toFixed(1)})`); }
-    else if (rsiVal > 60) { sellScore += 1.5; reasons.push(`RSI high (${rsiVal.toFixed(1)})`); }
-    else { reasons.push(`RSI neutral (${rsiVal.toFixed(1)})`); }
+export async function GET() {
+  // Return cached signals if still fresh
+  if (cachedSignals.length > 0 && Date.now() - lastSignalTime < SIGNAL_TTL) {
+    return NextResponse.json({ source: "cached", signals: cachedSignals, cached: true });
   }
 
-  // MACD Analysis
-  if (macd.length > 1) {
-    const m = parseFloat(macd[0]?.macd || "0");
-    const ms = parseFloat(macd[0]?.macd_signal || "0");
-    const pm = parseFloat(macd[1]?.macd || "0");
-    const pms = parseFloat(macd[1]?.macd_signal || "0");
-    indicatorSummary.MACD = m.toFixed(dec);
-    indicatorSummary["MACD_Signal"] = ms.toFixed(dec);
+  try {
+    const signals: any[] = [];
+    // Pick 4 random pairs to analyze
+    const shuffled = [...PAIRS].sort(() => Math.random() - 0.5).slice(0, 4);
 
-    if (pm < pms && m > ms) { buyScore += 3; reasons.push("MACD bullish crossover"); }
-    else if (pm > pms && m < ms) { sellScore += 3; reasons.push("MACD bearish crossover"); }
-    else if (m > ms) { buyScore += 1; reasons.push("MACD bullish"); }
-    else if (m < ms) { sellScore += 1; reasons.push("MACD bearish"); }
+    for (const { pair, from, to } of shuffled) {
+      try {
+        const [rateData, candleData] = await Promise.all([avRate(from, to), avCandles(from, to)]);
+        if (rateData) {
+          const sig = analyze(pair, rateData.price, candleData);
+          if (sig) signals.push(sig);
+        }
+      } catch {}
+      await new Promise((r) => setTimeout(r, 400));
+    }
+
+    if (signals.length > 0) {
+      cachedSignals = signals;
+      lastSignalTime = Date.now();
+    }
+
+    return NextResponse.json({
+      source: signals.length > 0 ? "alpha-vantage" : "empty",
+      signals: signals.length > 0 ? signals : cachedSignals,
+    });
+  } catch {
+    return NextResponse.json({ source: "error", signals: cachedSignals });
   }
-
-  // Price momentum (simple comparison)
-  const momentum = currentPrice * (Math.random() - 0.48) * 0.001; // Slight random bias
-  if (momentum > 0) { buyScore += 0.5; }
-  else { sellScore += 0.5; }
-
-  const totalScore = buyScore + sellScore;
-  const signalType = buyScore > sellScore ? ("BUY" as const) : ("SELL" as const);
-  const winningScore = Math.max(buyScore, sellScore);
-  const confidence = totalScore > 0 ? Math.min(Math.round((winningScore / totalScore) * 100), 95) : 50;
-  const shouldSignal = totalScore >= 1.5 && winningScore >= 1;
-
-  return { shouldSignal, signalType, confidence, buyScore, sellScore, reasoning: reasons, atrValue: 0, indicatorSummary };
-}
-
-function getDecimals(pair: string) {
-  if (pair.includes("XAU") || pair.includes("XAG") || pair.includes("JPY")) return 2;
-  return 4;
-}
-
-function generateFallbackSignals() {
-  const pairs = FOREX_PAIRS.slice(0, 4);
-  const basePrices: Record<string, number> = {
-    "EUR/USD": 1.0872, "GBP/USD": 1.2715, "USD/JPY": 157.85, "AUD/USD": 0.6648,
-  };
-  return pairs.map((pair, i) => {
-    const type = i % 2 === 0 ? "BUY" : "SELL";
-    const bp = basePrices[pair] || 1.0;
-    const dec = getDecimals(pair);
-    const tpDist = bp * (type === "BUY" ? 0.002 : -0.002);
-    const slDist = bp * (type === "BUY" ? -0.001 : 0.001);
-    return {
-      id: `SIG-FB-${Date.now().toString(36).toUpperCase()}-${i}`,
-      pair, type,
-      entry: parseFloat(bp.toFixed(dec)),
-      tp: parseFloat((bp + tpDist).toFixed(dec)),
-      sl: parseFloat((bp + slDist).toFixed(dec)),
-      timestamp: new Date().toISOString(),
-      status: "ACTIVE" as const,
-      confidence: 50,
-      reasoning: ["Fallback (rate limited)"],
-      indicators: {},
-      priceData: { bid: bp, ask: bp, high: bp, low: bp, open: bp },
-    };
-  });
 }

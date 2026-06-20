@@ -1,55 +1,77 @@
 import { NextResponse } from "next/server";
-import { getAllLivePrices } from "@/lib/rapidapi";
+
+const ALPHA_KEY = process.env.ALPHA_VANTAGE_API_KEY!;
+const ALPHA_HOST = process.env.ALPHA_VANTAGE_API_HOST!;
+const TWELVE_KEY = process.env.TWELVE_DATA_API_KEY!;
+const TWELVE_HOST = process.env.TWELVE_DATA_API_HOST!;
+
+const PAIRS = [
+  { pair: "EUR/USD", from: "EUR", to: "USD" },
+  { pair: "GBP/USD", from: "GBP", to: "USD" },
+  { pair: "USD/JPY", from: "USD", to: "JPY" },
+  { pair: "USD/CHF", from: "USD", to: "CHF" },
+  { pair: "AUD/USD", from: "AUD", to: "USD" },
+  { pair: "NZD/USD", from: "NZD", to: "USD" },
+  { pair: "USD/CAD", from: "USD", to: "CAD" },
+  { pair: "EUR/GBP", from: "EUR", to: "GBP" },
+  { pair: "EUR/JPY", from: "EUR", to: "JPY" },
+  { pair: "GBP/JPY", from: "GBP", to: "JPY" },
+  { pair: "XAU/USD", from: "XAU", to: "USD" },
+  { pair: "XAG/USD", from: "XAG", to: "USD" },
+];
+
+function getSpread(pair: string) {
+  if (pair.includes("XAU")) return 0.30;
+  if (pair.includes("XAG")) return 0.03;
+  if (pair.includes("JPY")) return 0.03;
+  return 0.00015;
+}
+
+function getDec(pair: string) {
+  if (pair.includes("XAU") || pair.includes("XAG") || pair.includes("JPY")) return 2;
+  return 5;
+}
 
 export async function GET() {
   try {
-    const prices = await getAllLivePrices();
+    const prices = [];
+    let liveCount = 0;
 
-    if (prices.length === 0) {
-      // Fallback to Alpha Vantage if Twelve Data fails
-      return NextResponse.json({ source: "fallback", prices: generateFallbackPrices() });
+    for (const { pair, from, to } of PAIRS) {
+      try {
+        const url = `https://${ALPHA_HOST}/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${from}&to_currency=${to}`;
+        const res = await fetch(url, {
+          headers: { "x-rapidapi-key": ALPHA_KEY, "x-rapidapi-host": ALPHA_HOST },
+          next: { revalidate: 0 },
+        });
+        const data = await res.json();
+        const rate = data["Realtime Currency Exchange Rate"];
+        if (!rate) continue;
+
+        const price = parseFloat(rate["5. Exchange Rate"]);
+        const bid = parseFloat(rate["8. Bid Price"]) || price;
+        const ask = parseFloat(rate["9. Ask Price"]) || price;
+        const spread = getSpread(pair);
+        const dec = getDec(pair);
+
+        prices.push({
+          pair,
+          bid: parseFloat(bid.toFixed(dec)),
+          ask: parseFloat(ask.toFixed(dec)),
+          spread: parseFloat(spread.toFixed(dec)),
+          price: parseFloat(price.toFixed(dec)),
+          change: 0,
+          changePercent: 0,
+        });
+        liveCount++;
+      } catch {
+        // fallback
+      }
     }
 
-    return NextResponse.json({ source: "twelve-data", prices });
+    return NextResponse.json({ source: "alpha-vantage", liveCount, total: PAIRS.length, prices });
   } catch (error) {
-    console.error("Prices API error:", error);
-    return NextResponse.json(
-      { source: "fallback", prices: generateFallbackPrices() },
-      { status: 200 }
-    );
+    console.error("Prices error:", error);
+    return NextResponse.json({ source: "error", liveCount: 0, total: PAIRS.length, prices: [] }, { status: 500 });
   }
-}
-
-function generateFallbackPrices() {
-  const pairs = [
-    "EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF",
-    "AUD/USD", "NZD/USD", "USD/CAD", "EUR/GBP",
-    "EUR/JPY", "GBP/JPY", "XAU/USD", "XAG/USD",
-  ];
-  const basePrices: Record<string, number> = {
-    "EUR/USD": 1.0872, "GBP/USD": 1.2715, "USD/JPY": 157.85,
-    "USD/CHF": 0.8935, "AUD/USD": 0.6648, "NZD/USD": 0.6115,
-    "USD/CAD": 1.3675, "EUR/GBP": 0.8552, "EUR/JPY": 171.65,
-    "GBP/JPY": 200.72, "XAU/USD": 2345.50, "XAG/USD": 29.45,
-  };
-
-  return pairs.map((pair) => {
-    const bp = basePrices[pair];
-    const isJPY = pair.includes("JPY");
-    const isGold = pair.includes("XAU");
-    const isSilver = pair.includes("XAG");
-    const decimals = isJPY || isGold || isSilver ? 2 : 5;
-    const spread = isGold ? 0.30 : isSilver ? 0.03 : isJPY ? 0.03 : 0.00015;
-    const change = bp * (Math.random() - 0.5) * 0.001;
-
-    return {
-      pair,
-      price: parseFloat(bp.toFixed(decimals)),
-      bid: parseFloat((bp - spread / 2).toFixed(decimals)),
-      ask: parseFloat((bp + spread / 2).toFixed(decimals)),
-      spread: parseFloat(spread.toFixed(decimals)),
-      change: parseFloat(change.toFixed(decimals)),
-      changePercent: parseFloat(((change / bp) * 100).toFixed(3)),
-    };
-  });
 }
