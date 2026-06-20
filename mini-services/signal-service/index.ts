@@ -1,13 +1,74 @@
+import * as fs from "fs";
+// Env vars injected by start.sh wrapper (or by Next.js for server routes)
+
 import { Server } from "socket.io";
 
-process.on('uncaughtException', () => {}); // Never crash
-process.on('unhandledRejection', () => {}); // Never crash
+const LOG = "/tmp/sig-err.log";
+process.on('uncaughtException', (e) => { 
+  fs.appendFileSync(LOG, `[FATAL ${new Date().toISOString()}] ${e?.stack || e}\n`);
+});
+process.on('unhandledRejection', (r: any) => { 
+  fs.appendFileSync(LOG, `[REJECT ${new Date().toISOString()}] ${r?.stack || r}\n`);
+});
+// Also handle exit
+process.on('exit', (code) => {
+  fs.appendFileSync(LOG, `[EXIT ${new Date().toISOString()}] code=${code}\n`);
+});
+process.on('SIGTERM', () => {
+  fs.appendFileSync(LOG, `[SIGTERM ${new Date().toISOString()}]\n`);
+  process.exit(143);
+});
 
 const io = new Server({ cors: { origin: "*", methods: ["GET", "POST"] } });
 
-const API_KEY = "2552f72538msh20ef2ab62659cf5p163fd9jsnce566284437f";
-const ALPHA_HOST = "alpha-vantage.p.rapidapi.com";
-const TWELVE_HOST = "twelve-data1.p.rapidapi.com";
+/* ─── Key Pool with Auto-Rotation ─── */
+interface Cred { key: string; host: string; limitedUntil: number; }
+
+class KeyPool {
+  creds: Cred[] = [];
+  private idx = 0;
+
+  constructor() {
+    // Twelve Data keys
+    if (process.env.TWELVE_DATA_API_KEY) {
+      this.creds.push({ key: process.env.TWELVE_DATA_API_KEY, host: process.env.TWELVE_DATA_API_HOST || "twelve-data1.p.rapidapi.com", limitedUntil: 0 });
+    }
+    if (process.env.TWELVE_DATA_API_KEY_2) {
+      this.creds.push({ key: process.env.TWELVE_DATA_API_KEY_2, host: process.env.TWELVE_DATA_API_HOST_2 || "twelve-data1.p.rapidapi.com", limitedUntil: 0 });
+    }
+    // Alpha Vantage keys
+    if (process.env.ALPHA_VANTAGE_API_KEY) {
+      this.creds.push({ key: process.env.ALPHA_VANTAGE_API_KEY, host: process.env.ALPHA_VANTAGE_API_HOST || "alpha-vantage.p.rapidapi.com", limitedUntil: 0 });
+    }
+    if (process.env.ALPHA_VANTAGE_API_KEY_2) {
+      this.creds.push({ key: process.env.ALPHA_VANTAGE_API_KEY_2, host: process.env.ALPHA_VANTAGE_API_HOST_2 || "alpha-vantage.p.rapidapi.com", limitedUntil: 0 });
+    }
+  }
+
+  get(preferredHost?: string): Cred {
+    const now = Date.now();
+    if (preferredHost) {
+      const p = this.creds.find(c => c.host === preferredHost && c.limitedUntil <= now);
+      if (p) return p;
+    }
+    for (let i = 0; i < this.creds.length; i++) {
+      const j = (this.idx + i) % this.creds.length;
+      if (this.creds[j].limitedUntil <= now) {
+        this.idx = (j + 1) % this.creds.length;
+        return this.creds[j];
+      }
+    }
+    return [...this.creds].sort((a, b) => a.limitedUntil - b.limitedUntil)[0];
+  }
+
+  markLimited(host: string, secs: number = 60) {
+    const c = this.creds.find(x => x.host === host);
+    if (c) { c.limitedUntil = Date.now() + secs * 1000; console.log(`[KeyPool] ${host} rate limited for ${secs}s`); }
+  }
+}
+
+const keys = new KeyPool();
+console.log(`Signal Service: ${keys.creds.length} API keys loaded`);
 
 const FOREX_PAIRS = [
   "EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD",
@@ -37,14 +98,38 @@ let currentPrices = new Map<string, PriceData>();
 let dataSource = "fallback";
 let lastPrices: Record<string, number> = {};
 
+/* ─── Fetch with key rotation ─── */
+async function fetchWithRotation(url: string, preferredHost: string, timeout = 8000): Promise<Response | null> {
+  const cred = keys.get(preferredHost);
+  try {
+    const r = await fetch(url, {
+      headers: { "x-rapidapi-key": cred.key, "x-rapidapi-host": cred.host },
+      signal: AbortSignal.timeout(timeout),
+    });
+    if (r.status === 429) {
+      keys.markLimited(cred.host, 60);
+      const c2 = keys.get();
+      if (c2.host === cred.host) return r; // all limited
+      console.log(`[Fetch] Retrying with alternate key (${c2.host})...`);
+      const r2 = await fetch(url, {
+        headers: { "x-rapidapi-key": c2.key, "x-rapidapi-host": c2.host },
+        signal: AbortSignal.timeout(timeout),
+      });
+      if (r2.status === 429) keys.markLimited(c2.host, 60);
+      return r2;
+    }
+    return r;
+  } catch { return null; }
+}
+
 // Fetch exchange rate from Alpha Vantage
 async function avRate(pair: string) {
   try {
     const [f, t] = AV_PAIRS[pair] || [];
     if (!f) return null;
-    const r = await fetch(`https://${ALPHA_HOST}/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${f}&to_currency=${t}`,
-      { headers: { "x-rapidapi-key": API_KEY, "x-rapidapi-host": ALPHA_HOST }, signal: AbortSignal.timeout(8000) });
-    if (!r.ok) return null;
+    const url = `https://${process.env.ALPHA_VANTAGE_API_HOST || "alpha-vantage.p.rapidapi.com"}/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${f}&to_currency=${t}`;
+    const r = await fetchWithRotation(url, process.env.ALPHA_VANTAGE_API_HOST || "alpha-vantage.p.rapidapi.com");
+    if (!r || !r.ok) return null;
     const d = await r.json();
     const ex = d?.["Realtime Currency Exchange Rate"];
     if (!ex) return null;
@@ -55,14 +140,29 @@ async function avRate(pair: string) {
   } catch { return null; }
 }
 
-// Fetch candles
+// Also fetch from Twelve Data as backup/alternative
+async function tdPrice(pair: string) {
+  try {
+    const url = `https://${process.env.TWELVE_DATA_API_HOST || "twelve-data1.p.rapidapi.com"}/price?symbol=${pair}&interval=1min`;
+    const r = await fetchWithRotation(url, process.env.TWELVE_DATA_API_HOST || "twelve-data1.p.rapidapi.com");
+    if (!r || !r.ok) return null;
+    const d = await r.json();
+    const price = parseFloat(d.price);
+    if (isNaN(price)) return null;
+    const bid = parseFloat(d.bid) || price;
+    const ask = parseFloat(d.ask) || price;
+    return { price, bid, ask };
+  } catch { return null; }
+}
+
+// Fetch candles from Alpha Vantage
 async function avCandles(pair: string) {
   try {
     const [f, t] = AV_PAIRS[pair] || [];
     if (!f) return [];
-    const r = await fetch(`https://${ALPHA_HOST}/query?function=FX_INTRADAY&from_symbol=${f}&to_symbol=${t}&interval=5min&outputsize=20`,
-      { headers: { "x-rapidapi-key": API_KEY, "x-rapidapi-host": ALPHA_HOST }, signal: AbortSignal.timeout(10000) });
-    if (!r.ok) return [];
+    const url = `https://${process.env.ALPHA_VANTAGE_API_HOST || "alpha-vantage.p.rapidapi.com"}/query?function=FX_INTRADAY&from_symbol=${f}&to_symbol=${t}&interval=5min&outputsize=20`;
+    const r = await fetchWithRotation(url, process.env.ALPHA_VANTAGE_API_HOST || "alpha-vantage.p.rapidapi.com", 10000);
+    if (!r || !r.ok) return [];
     const d = await r.json();
     const key = Object.keys(d).find((k) => k.includes("Time Series"));
     if (!key) return [];
@@ -145,7 +245,7 @@ function makeSignal(pair: string, price: number, candles: any[]): Signal | null 
     tp: parseFloat((type === "BUY" ? price + atr * 2.5 : price - atr * 2.5).toFixed(dec)),
     sl: parseFloat((type === "BUY" ? price - atr * 1.5 : price + atr * 1.5).toFixed(dec)),
     timestamp: new Date().toISOString(), status: "ACTIVE", confidence: conf,
-    reasoning: reasons, indicators: ind, source: "RapidAPI",
+    reasoning: reasons, indicators: ind, source: "RapidAPI (Dual Key)",
   };
 }
 
@@ -156,11 +256,17 @@ function fallback(p: string): PriceData {
   return { pair: p, bid: +(bp - sp / 2).toFixed(dc), ask: +(bp + sp / 2).toFixed(dc), spread: +sp.toFixed(dc), change: 0, changePercent: 0 };
 }
 
-// ─── Fetch all prices ───
+// ─── Fetch all prices (using both API sources with rotation) ───
 async function fetchPrices() {
   let ok = 0;
   for (const pair of FOREX_PAIRS) {
-    const d = await avRate(pair);
+    // Try Alpha Vantage first, then Twelve Data as fallback
+    let d = await avRate(pair);
+    let source = "AV";
+    if (!d) {
+      d = await tdPrice(pair);
+      source = "TD";
+    }
     if (d) {
       const sp = getSpread(pair), dc = getDec(pair);
       const prev = currentPrices.get(pair)?.bid || d.bid;
@@ -171,7 +277,7 @@ async function fetchPrices() {
     } else {
       if (!currentPrices.has(pair)) currentPrices.set(pair, fallback(pair));
     }
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, 250));
   }
   dataSource = ok >= 7 ? "live" : ok >= 4 ? "partial" : "fallback";
   io.emit("prices", Array.from(currentPrices.values()));
@@ -179,18 +285,24 @@ async function fetchPrices() {
   console.log(`Prices: ${ok}/${FOREX_PAIRS.length} (${dataSource})`);
 }
 
-// ─── Generate signal ───
+// ─── Generate signal (using both data sources) ───
 async function genSignal() {
   const pair = FOREX_PAIRS[Math.floor(Math.random() * FOREX_PAIRS.length)];
   console.log(`Analyzing ${pair}...`);
 
   try {
-    const pd = await avRate(pair);
-    if (!pd) { console.log(`  No price`); schedule(); return; }
+    // Try Alpha Vantage first, then Twelve Data
+    let pd = await avRate(pair);
+    let src = "Alpha Vantage";
+    if (!pd) {
+      pd = await tdPrice(pair);
+      src = "Twelve Data";
+    }
+    if (!pd) { console.log(`  No price from either API`); schedule(); return; }
 
     let candles: any[] = [];
     try { candles = await avCandles(pair); } catch {}
-    console.log(`  ${candles.length} candles`);
+    console.log(`  ${candles.length} candles (${src})`);
 
     try {
       const sig = makeSignal(pair, pd.price, candles);
@@ -255,4 +367,4 @@ setTimeout(updateStatus, 20000);
 setInterval(fetchPrices, 60000);
 
 io.listen(3003);
-console.log("Signal service running on port 3003 (Alpha Vantage + Twelve Data)");
+console.log("Signal service running on port 3003 (Dual Key: Alpha Vantage + Twelve Data)");

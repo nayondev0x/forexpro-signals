@@ -6,6 +6,7 @@
     "dev": "bun --hot index.ts"
   },
   "dependencies": {
+    "dotenv": "^17.4.2",
     "socket.io": "^4.8.1"
   }
 }

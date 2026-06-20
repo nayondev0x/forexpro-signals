@@ -1,35 +1,154 @@
 // Server-side only — never import this in client components
 
-const TWELVE_DATA_KEY = process.env.TWELVE_DATA_API_KEY!;
-const TWELVE_DATA_HOST = process.env.TWELVE_DATA_API_HOST!;
-const ALPHA_VANTAGE_KEY = process.env.ALPHA_VANTAGE_API_KEY!;
-const ALPHA_VANTAGE_HOST = process.env.ALPHA_VANTAGE_API_HOST!;
+/* ─── Key Pool with Auto-Rotation ─── */
+interface ApiCredential {
+  key: string;
+  host: string;
+  rateLimitedUntil: number; // timestamp when this key becomes available again
+}
 
-/* ─── Twelve Data Client ─── */
+class KeyPool {
+  private credentials: ApiCredential[] = [];
+  private currentIdx = 0;
+
+  constructor() {
+    // Twelve Data keys
+    if (process.env.TWELVE_DATA_API_KEY) {
+      this.credentials.push({
+        key: process.env.TWELVE_DATA_API_KEY,
+        host: process.env.TWELVE_DATA_API_HOST || "twelve-data1.p.rapidapi.com",
+        rateLimitedUntil: 0,
+      });
+    }
+    if (process.env.TWELVE_DATA_API_KEY_2) {
+      this.credentials.push({
+        key: process.env.TWELVE_DATA_API_KEY_2,
+        host: process.env.TWELVE_DATA_API_HOST_2 || "twelve-data1.p.rapidapi.com",
+        rateLimitedUntil: 0,
+      });
+    }
+
+    // Alpha Vantage keys (separate pool)
+    if (process.env.ALPHA_VANTAGE_API_KEY) {
+      this.credentials.push({
+        key: process.env.ALPHA_VANTAGE_API_KEY,
+        host: process.env.ALPHA_VANTAGE_API_HOST || "alpha-vantage.p.rapidapi.com",
+        rateLimitedUntil: 0,
+      });
+    }
+    if (process.env.ALPHA_VANTAGE_API_KEY_2) {
+      this.credentials.push({
+        key: process.env.ALPHA_VANTAGE_API_KEY_2,
+        host: process.env.ALPHA_VANTAGE_API_HOST_2 || "alpha-vantage.p.rapidapi.com",
+        rateLimitedUntil: 0,
+      });
+    }
+  }
+
+  /** Get next available credential, skipping rate-limited ones */
+  get(preferredHost?: string): ApiCredential {
+    const now = Date.now();
+    // Try preferred host first
+    if (preferredHost) {
+      const pref = this.credentials.find(
+        (c) => c.host === preferredHost && c.rateLimitedUntil <= now
+      );
+      if (pref) return pref;
+    }
+    // Round-robin through available keys
+    for (let i = 0; i < this.credentials.length; i++) {
+      const idx = (this.currentIdx + i) % this.credentials.length;
+      const cred = this.credentials[idx];
+      if (cred.rateLimitedUntil <= now) {
+        this.currentIdx = (idx + 1) % this.credentials.length;
+        return cred;
+      }
+    }
+    // All rate limited — pick the one that recovers soonest
+    const sorted = [...this.credentials].sort((a, b) => a.rateLimitedUntil - b.rateLimitedUntil);
+    return sorted[0];
+  }
+
+  /** Mark a credential as rate-limited for `seconds` duration */
+  markRateLimited(host: string, seconds: number = 60) {
+    const cred = this.credentials.find((c) => c.host === host);
+    if (cred) {
+      cred.rateLimitedUntil = Date.now() + seconds * 1000;
+      console.log(`[KeyPool] Rate limited ${host} for ${seconds}s`);
+    }
+  }
+
+  get keyCount() {
+    return this.credentials.length;
+  }
+}
+
+const keyPool = new KeyPool();
+console.log(`[KeyPool] Initialized with ${keyPool.keyCount} API credentials`);
+
+/* ─── Twelve Data Client (with key rotation) ─── */
 async function twelveData(endpoint: string, params: Record<string, string> = {}) {
-  const url = new URL(`https://${TWELVE_DATA_HOST}${endpoint}`);
-  // Do NOT pass apikey as query param — RapidAPI handles auth via header
+  const cred = keyPool.get(process.env.TWELVE_DATA_API_HOST);
+  const url = new URL(`https://${cred.host}${endpoint}`);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
 
   const res = await fetch(url.toString(), {
-    headers: { "x-rapidapi-key": TWELVE_DATA_KEY, "x-rapidapi-host": TWELVE_DATA_HOST },
+    headers: { "x-rapidapi-key": cred.key, "x-rapidapi-host": cred.host },
     next: { revalidate: 0 },
   });
+
+  if (res.status === 429) {
+    // Rate limited — try with another key
+    keyPool.markRateLimited(cred.host, 60);
+    const cred2 = keyPool.get();
+    if (cred2.host === cred.host) {
+      // All keys rate limited
+      throw new Error(`TwelveData 429: All keys rate limited`);
+    }
+    console.log(`[TwelveData] Retrying with alternate key...`);
+    const res2 = await fetch(url.toString(), {
+      headers: { "x-rapidapi-key": cred2.key, "x-rapidapi-host": cred2.host },
+      next: { revalidate: 0 },
+    });
+    if (!res2.ok) {
+      if (res2.status === 429) keyPool.markRateLimited(cred2.host, 60);
+      throw new Error(`TwelveData ${res2.status}: ${res2.statusText}`);
+    }
+    return res2.json();
+  }
 
   if (!res.ok) throw new Error(`TwelveData ${res.status}: ${res.statusText}`);
   return res.json();
 }
 
-/* ─── Alpha Vantage Client ─── */
+/* ─── Alpha Vantage Client (with key rotation) ─── */
 async function alphaVantage(params: Record<string, string>) {
-  const url = new URL(`https://${ALPHA_VANTAGE_HOST}/query`);
-  // Do NOT pass apikey as query param — RapidAPI handles auth via header
+  const cred = keyPool.get(process.env.ALPHA_VANTAGE_API_HOST);
+  const url = new URL(`https://${cred.host}/query`);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
 
   const res = await fetch(url.toString(), {
-    headers: { "x-rapidapi-key": ALPHA_VANTAGE_KEY, "x-rapidapi-host": ALPHA_VANTAGE_HOST },
+    headers: { "x-rapidapi-key": cred.key, "x-rapidapi-host": cred.host },
     next: { revalidate: 0 },
   });
+
+  if (res.status === 429) {
+    keyPool.markRateLimited(cred.host, 60);
+    const cred2 = keyPool.get();
+    if (cred2.host === cred.host) {
+      throw new Error(`AlphaVantage 429: All keys rate limited`);
+    }
+    console.log(`[AlphaVantage] Retrying with alternate key...`);
+    const res2 = await fetch(url.toString(), {
+      headers: { "x-rapidapi-key": cred2.key, "x-rapidapi-host": cred2.host },
+      next: { revalidate: 0 },
+    });
+    if (!res2.ok) {
+      if (res2.status === 429) keyPool.markRateLimited(cred2.host, 60);
+      throw new Error(`AlphaVantage ${res2.status}: ${res2.statusText}`);
+    }
+    return res2.json();
+  }
 
   if (!res.ok) throw new Error(`AlphaVantage ${res.status}: ${res.statusText}`);
   return res.json();
