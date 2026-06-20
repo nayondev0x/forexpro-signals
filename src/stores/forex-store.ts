@@ -1,0 +1,42 @@
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+
+interface ForexStore {
+  favorites: string[];
+  toggleFavorite: (pair: string) => void;
+  isFavorite: (pair: string) => boolean;
+  selectedPair: string;
+  setSelectedPair: (pair: string) => void;
+  autoRefresh: boolean;
+  setAutoRefresh: (v: boolean) => void;
+  notificationsEnabled: boolean;
+  setNotificationsEnabled: (v: boolean) => void;
+  soundEnabled: boolean;
+  setSoundEnabled: (v: boolean) => void;
+  selectedSignalId: string | null;
+  setSelectedSignalId: (id: string | null) => void;
+}
+
+export const useForexStore = create<ForexStore>()(
+  persist(
+    (set, get) => ({
+      favorites: [],
+      toggleFavorite: (pair: string) => {
+        const favs = get().favorites;
+        set({ favorites: favs.includes(pair) ? favs.filter((p) => p !== pair) : [...favs, pair] });
+      },
+      isFavorite: (pair: string) => get().favorites.includes(pair),
+      selectedPair: "EUR/USD",
+      setSelectedPair: (pair: string) => set({ selectedPair: pair }),
+      autoRefresh: true,
+      setAutoRefresh: (v: boolean) => set({ autoRefresh: v }),
+      notificationsEnabled: false,
+      setNotificationsEnabled: (v: boolean) => set({ notificationsEnabled: v }),
+      soundEnabled: true,
+      setSoundEnabled: (v: boolean) => set({ soundEnabled: v }),
+      selectedSignalId: null,
+      setSelectedSignalId: (id: string | null) => set({ selectedSignalId: id }),
+    }),
+    { name: "forex-prefs", partialize: (s) => ({ favorites: s.favorites, autoRefresh: s.autoRefresh, notificationsEnabled: s.notificationsEnabled, soundEnabled: s.soundEnabled, selectedPair: s.selectedPair }) }
+  )
+);
