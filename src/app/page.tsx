@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { TrendingUp, TrendingDown, Activity, Target, ShieldAlert, Clock, Zap, BarChart3, Trophy, ArrowUpRight, ArrowDownRight, Signal, Wifi, WifiOff, RefreshCw, Brain, Gauge, Star, ChevronDown, ChevronUp, X } from "lucide-react";
+import { TrendingUp, TrendingDown, Activity, Target, ShieldAlert, Clock, Zap, BarChart3, Trophy, ArrowUpRight, ArrowDownRight, Signal, Wifi, WifiOff, RefreshCw, Brain, Gauge, Star, ChevronDown, ChevronUp, X, Newspaper } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -19,6 +19,7 @@ import { SignalDetailSheet } from "@/components/forex/signal-detail-sheet";
 import { PerformanceDashboard } from "@/components/forex/performance-dashboard";
 import { ControlsBar } from "@/components/forex/controls-bar";
 import { playSignalSound, sendBrowserNotification } from "@/components/forex/notification-sound";
+import { MarketNews } from "@/components/forex/market-news";
 
 /* ─Types ─*/
 interface ForexSignal {
@@ -216,17 +217,21 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
-  const { autoRefresh, notificationsEnabled, soundEnabled, selectedPair, setSelectedSignalId, selectedSignalId, favorites, setActiveTab } = useForexStore();
+  const { autoRefresh, notificationsEnabled, soundEnabled, selectedPair, setSelectedSignalId, selectedSignalId, favorites, activeTab, setActiveTab } = useForexStore();
 
-  // Filter signals by pair and favorites
+  // Filter signals/prices by pair and favorites
   const filteredSignals = signals.filter(s => {
+    if (selectedPair === "__favorites__") {
+      return favorites.length > 0 && favorites.includes(s.pair);
+    }
     if (selectedPair !== "ALL" && s.pair !== selectedPair) return false;
-    if (favorites.length > 0 && !favorites.includes(s.pair)) return false;
     return true;
   });
   const filteredPrices = prices.filter(p => {
+    if (selectedPair === "__favorites__") {
+      return favorites.length > 0 && favorites.includes(p.pair);
+    }
     if (selectedPair !== "ALL" && p.pair !== selectedPair) return false;
-    if (favorites.length > 0 && !favorites.includes(p.pair)) return false;
     return true;
   });
 
@@ -310,7 +315,7 @@ export default function Home() {
         <section className="mb-6"><StatsCards signals={signals} dataSource={dataSource} /></section>
         <Separator className="mb-6 bg-border/30" />
 
-        <Tabs defaultValue="active" className="w-full" onValueChange={v => setActiveTab(v)}>
+        <Tabs value={activeTab} className="w-full" onValueChange={v => setActiveTab(v)}>
           <TabsList className="mb-4 flex-wrap bg-card/80 border border-border/30 h-auto p-1 gap-1">
             <TabsTrigger value="active" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-500 text-xs">
               <span className="flex items-center gap-1.5"><Activity className="h-4 w-4" />Active{activeSignals.length > 0 && <span className="ml-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-500/20 px-1 text-[10px] font-bold text-emerald-500">{activeSignals.length}</span>}</span>
@@ -332,6 +337,9 @@ export default function Home() {
             </TabsTrigger>
             <TabsTrigger value="calendar" className="data-[state=active]:bg-pink-500/20 data-[state=active]:text-pink-500 text-xs">
               <span className="flex items-center gap-1.5"><Clock className="h-4 w-4" />Calendar</span>
+            </TabsTrigger>
+            <TabsTrigger value="news" className="data-[state=active]:bg-indigo-500/20 data-[state=active]:text-indigo-500 text-xs">
+              <span className="flex items-center gap-1.5"><Newspaper className="h-4 w-4" />News</span>
             </TabsTrigger>
           </TabsList>
 
@@ -425,6 +433,11 @@ export default function Home() {
           {/* Economic Calendar */}
           <TabsContent value="calendar">
             <EconomicCalendar />
+          </TabsContent>
+
+          {/* Market News */}
+          <TabsContent value="news">
+            <MarketNews />
           </TabsContent>
         </Tabs>
       </main>

@@ -7,6 +7,8 @@ interface ForexStore {
   isFavorite: (pair: string) => boolean;
   selectedPair: string;
   setSelectedPair: (pair: string) => void;
+  activeTab: string;
+  setActiveTab: (tab: string) => void;
   autoRefresh: boolean;
   setAutoRefresh: (v: boolean) => void;
   notificationsEnabled: boolean;
@@ -26,8 +28,10 @@ export const useForexStore = create<ForexStore>()(
         set({ favorites: favs.includes(pair) ? favs.filter((p) => p !== pair) : [...favs, pair] });
       },
       isFavorite: (pair: string) => get().favorites.includes(pair),
-      selectedPair: "EUR/USD",
+      selectedPair: "ALL",
       setSelectedPair: (pair: string) => set({ selectedPair: pair }),
+      activeTab: "active",
+      setActiveTab: (tab: string) => set({ activeTab: tab }),
       autoRefresh: true,
       setAutoRefresh: (v: boolean) => set({ autoRefresh: v }),
       notificationsEnabled: false,
@@ -37,6 +41,6 @@ export const useForexStore = create<ForexStore>()(
       selectedSignalId: null,
       setSelectedSignalId: (id: string | null) => set({ selectedSignalId: id }),
     }),
-    { name: "forex-prefs", partialize: (s) => ({ favorites: s.favorites, autoRefresh: s.autoRefresh, notificationsEnabled: s.notificationsEnabled, soundEnabled: s.soundEnabled, selectedPair: s.selectedPair }) }
+    { name: "forex-prefs", partialize: (s) => ({ favorites: s.favorites, autoRefresh: s.autoRefresh, notificationsEnabled: s.notificationsEnabled, soundEnabled: s.soundEnabled, selectedPair: s.selectedPair, activeTab: s.activeTab }) }
   )
 );
