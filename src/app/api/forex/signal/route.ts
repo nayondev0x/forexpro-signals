@@ -1,111 +1,153 @@
 import { NextResponse } from "next/server";
 
-/* ─── Key Pool with Auto-Rotation ─── */
-interface Cred { key: string; host: string; limitedUntil: number; }
+/* ═══════════════════════════════════════════════════════════
+   SMART DUAL-API KEY SYSTEM for Signals
+   - Price: AV first on even pairs, TD first on odd pairs
+   - Candles: Always AV (only AV has FX_INTRADAY candles)
+   - Price fail → auto switch to other API
+   - Candles fail → price-only analysis still works
+   - Per-KEY rate limiting — 4 keys = 4x free capacity
+   ═══════════════════════════════════════════════════════════ */
 
-class KeyPool {
-  creds: Cred[] = [];
-  private idx = 0;
+interface ApiKey {
+  id: string;
+  key: string;
+  host: string;
+  service: "TD" | "AV";
+  limitedUntil: number;
+  callCount: number;
+}
+
+class DualApiManager {
+  private tdKeys: ApiKey[] = [];
+  private avKeys: ApiKey[] = [];
+  private tdIdx = 0;
+  private avIdx = 0;
 
   constructor() {
     if (process.env.TWELVE_DATA_API_KEY)
-      this.creds.push({ key: process.env.TWELVE_DATA_API_KEY, host: process.env.TWELVE_DATA_API_HOST || "twelve-data1.p.rapidapi.com", limitedUntil: 0 });
+      this.tdKeys.push({ id: "TD-1", key: process.env.TWELVE_DATA_API_KEY, host: process.env.TWELVE_DATA_API_HOST || "twelve-data1.p.rapidapi.com", service: "TD", limitedUntil: 0, callCount: 0 });
     if (process.env.TWELVE_DATA_API_KEY_2)
-      this.creds.push({ key: process.env.TWELVE_DATA_API_KEY_2, host: process.env.TWELVE_DATA_API_HOST_2 || "twelve-data1.p.rapidapi.com", limitedUntil: 0 });
+      this.tdKeys.push({ id: "TD-2", key: process.env.TWELVE_DATA_API_KEY_2, host: process.env.TWELVE_DATA_API_HOST_2 || "twelve-data1.p.rapidapi.com", service: "TD", limitedUntil: 0, callCount: 0 });
     if (process.env.ALPHA_VANTAGE_API_KEY)
-      this.creds.push({ key: process.env.ALPHA_VANTAGE_API_KEY, host: process.env.ALPHA_VANTAGE_API_HOST || "alpha-vantage.p.rapidapi.com", limitedUntil: 0 });
+      this.avKeys.push({ id: "AV-1", key: process.env.ALPHA_VANTAGE_API_KEY, host: process.env.ALPHA_VANTAGE_API_HOST || "alpha-vantage.p.rapidapi.com", service: "AV", limitedUntil: 0, callCount: 0 });
     if (process.env.ALPHA_VANTAGE_API_KEY_2)
-      this.creds.push({ key: process.env.ALPHA_VANTAGE_API_KEY_2, host: process.env.ALPHA_VANTAGE_API_HOST_2 || "alpha-vantage.p.rapidapi.com", limitedUntil: 0 });
+      this.avKeys.push({ id: "AV-2", key: process.env.ALPHA_VANTAGE_API_KEY_2, host: process.env.ALPHA_VANTAGE_API_HOST_2 || "alpha-vantage.p.rapidapi.com", service: "AV", limitedUntil: 0, callCount: 0 });
   }
 
-  get(preferredHost?: string): Cred {
+  private getNextKey(pool: ApiKey[], idxRef: { value: number }): ApiKey | null {
     const now = Date.now();
-    if (preferredHost) {
-      const p = this.creds.find(c => c.host === preferredHost && c.limitedUntil <= now);
-      if (p) return p;
+    for (let i = 0; i < pool.length; i++) {
+      const j = (idxRef.value + i) % pool.length;
+      if (pool[j].limitedUntil <= now) { idxRef.value = j + 1; pool[j].callCount++; return pool[j]; }
     }
-    for (let i = 0; i < this.creds.length; i++) {
-      const j = (this.idx + i) % this.creds.length;
-      if (this.creds[j].limitedUntil <= now) { this.idx = (j + 1) % this.creds.length; return this.creds[j]; }
-    }
-    return [...this.creds].sort((a, b) => a.limitedUntil - b.limitedUntil)[0];
+    return null;
   }
 
-  markLimited(host: string, secs = 60) {
-    const c = this.creds.find(x => x.host === host);
-    if (c) c.limitedUntil = Date.now() + secs * 1000;
+  getTD() { return this.getNextKey(this.tdKeys, { value: this.tdIdx }); }
+  getAV() { return this.getNextKey(this.avKeys, { value: this.avIdx }); }
+
+  markLimited(keyId: string, secs = 60) {
+    [...this.tdKeys, ...this.avKeys].find(k => k.id === keyId && (k.limitedUntil = Date.now() + secs * 1000));
+  }
+
+  async fetchWithFailover(url: string, preferred: "AV" | "TD"): Promise<{ response: Response | null; usedKey: string; usedService: string }> {
+    // Try preferred service (up to 2 keys)
+    for (let a = 0; a < 2; a++) {
+      const k = preferred === "AV" ? this.getAV() : this.getTD();
+      if (!k) break;
+      try {
+        const r = await fetch(url, { headers: { "x-rapidapi-key": k.key, "x-rapidapi-host": k.host }, signal: AbortSignal.timeout(8000) });
+        if (r.status === 429) { this.markLimited(k.id, 60); continue; }
+        return { response: r, usedKey: k.id, usedService: k.service };
+      } catch { continue; }
+    }
+    // Failover to other service
+    const fb: "AV" | "TD" = preferred === "AV" ? "TD" : "AV";
+    const fk = fb === "AV" ? this.getAV() : this.getTD();
+    if (fk) {
+      try {
+        const r = await fetch(url, { headers: { "x-rapidapi-key": fk.key, "x-rapidapi-host": fk.host }, signal: AbortSignal.timeout(8000) });
+        if (r.status === 429) this.markLimited(fk.id, 60);
+        else return { response: r, usedKey: fk.id, usedService: fk.service };
+      } catch {}
+    }
+    return { response: null, usedKey: "none", usedService: "none" };
+  }
+
+  get stats() {
+    return {
+      totalKeys: this.tdKeys.length + this.avKeys.length,
+      tdCalls: this.tdKeys.reduce((a, k) => a + k.callCount, 0),
+      avCalls: this.avKeys.reduce((a, k) => a + k.callCount, 0),
+      tdLimited: this.tdKeys.filter(k => k.limitedUntil > Date.now()).length,
+      avLimited: this.avKeys.filter(k => k.limitedUntil > Date.now()).length,
+    };
   }
 }
 
-const keys = new KeyPool();
+const api = new DualApiManager();
 
-async function fetchRotated(url: string, preferredHost: string, timeout = 8000) {
-  const cred = keys.get(preferredHost);
-  try {
-    const r = await fetch(url, {
-      headers: { "x-rapidapi-key": cred.key, "x-rapidapi-host": cred.host },
-      signal: AbortSignal.timeout(timeout),
-    });
-    if (r.status === 429) {
-      keys.markLimited(cred.host, 60);
-      const c2 = keys.get();
-      if (c2.host === cred.host) return r;
-      const r2 = await fetch(url, {
-        headers: { "x-rapidapi-key": c2.key, "x-rapidapi-host": c2.host },
-        signal: AbortSignal.timeout(timeout),
-      });
-      if (r2.status === 429) keys.markLimited(c2.host, 60);
-      return r2;
+/* ─── Data Fetchers ─── */
+
+async function fetchPrice(pair: string, from: string, to: string, preferAV: boolean) {
+  if (preferAV) {
+    // AV first
+    const avHost = process.env.ALPHA_VANTAGE_API_HOST || "alpha-vantage.p.rapidapi.com";
+    const { response, usedKey, usedService } = await api.fetchWithFailover(
+      `https://${avHost}/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${from}&to_currency=${to}`, "AV"
+    );
+    if (response?.ok) {
+      const d = await response.json();
+      const ex = d?.["Realtime Currency Exchange Rate"];
+      if (ex) {
+        const price = parseFloat(ex["5. Exchange Rate"]);
+        if (!isNaN(price)) return { price, bid: parseFloat(ex["8. Bid Price"]) || price, ask: parseFloat(ex["9. Ask Price"]) || price, src: usedService, key: usedKey };
+      }
     }
-    return r;
-  } catch { return null as any; }
+    // Fallback to TD
+    const tdHost = process.env.TWELVE_DATA_API_HOST || "twelve-data1.p.rapidapi.com";
+    const r2 = await api.fetchWithFailover(`https://${tdHost}/price?symbol=${pair}&interval=1min`, "TD");
+    if (r2.response?.ok) {
+      const d = await r2.response.json();
+      const price = parseFloat(d.price);
+      if (!isNaN(price)) return { price, bid: parseFloat(d.bid) || price, ask: parseFloat(d.ask) || price, src: r2.usedService, key: r2.usedKey };
+    }
+  } else {
+    // TD first
+    const tdHost = process.env.TWELVE_DATA_API_HOST || "twelve-data1.p.rapidapi.com";
+    const { response, usedKey, usedService } = await api.fetchWithFailover(
+      `https://${tdHost}/price?symbol=${pair}&interval=1min`, "TD"
+    );
+    if (response?.ok) {
+      const d = await response.json();
+      const price = parseFloat(d.price);
+      if (!isNaN(price)) return { price, bid: parseFloat(d.bid) || price, ask: parseFloat(d.ask) || price, src: usedService, key: usedKey };
+    }
+    // Fallback to AV
+    const avHost = process.env.ALPHA_VANTAGE_API_HOST || "alpha-vantage.p.rapidapi.com";
+    const r2 = await api.fetchWithFailover(
+      `https://${avHost}/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${from}&to_currency=${to}`, "AV"
+    );
+    if (r2.response?.ok) {
+      const d = await r2.response.json();
+      const ex = d?.["Realtime Currency Exchange Rate"];
+      if (ex) {
+        const price = parseFloat(ex["5. Exchange Rate"]);
+        if (!isNaN(price)) return { price, bid: parseFloat(ex["8. Bid Price"]) || price, ask: parseFloat(ex["9. Ask Price"]) || price, src: r2.usedService, key: r2.usedKey };
+      }
+    }
+  }
+  return null;
 }
 
-/* ─── Pairs ─── */
-const PAIRS = [
-  { pair: "EUR/USD", from: "EUR", to: "USD" },
-  { pair: "GBP/USD", from: "GBP", to: "USD" },
-  { pair: "USD/JPY", from: "USD", to: "JPY" },
-  { pair: "AUD/USD", from: "AUD", to: "USD" },
-  { pair: "USD/CAD", from: "USD", to: "CAD" },
-  { pair: "EUR/GBP", from: "EUR", to: "GBP" },
-  { pair: "EUR/JPY", from: "EUR", to: "JPY" },
-  { pair: "GBP/JPY", from: "GBP", to: "JPY" },
-  { pair: "XAU/USD", from: "XAU", to: "USD" },
-];
-
-// Alpha Vantage rate
-async function avRate(from: string, to: string) {
-  const host = process.env.ALPHA_VANTAGE_API_HOST || "alpha-vantage.p.rapidapi.com";
-  const r = await fetchRotated(
-    `https://${host}/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${from}&to_currency=${to}`, host
+async function fetchCandles(from: string, to: string) {
+  const avHost = process.env.ALPHA_VANTAGE_API_HOST || "alpha-vantage.p.rapidapi.com";
+  const { response } = await api.fetchWithFailover(
+    `https://${avHost}/query?function=FX_INTRADAY&from_symbol=${from}&to_symbol=${to}&interval=5min&outputsize=20`, "AV"
   );
-  if (!r?.ok) return null;
-  const d = await r.json();
-  const ex = d?.["Realtime Currency Exchange Rate"];
-  if (!ex) return null;
-  const price = parseFloat(ex["5. Exchange Rate"]);
-  return isNaN(price) ? null : { price, bid: parseFloat(ex["8. Bid Price"]) || price, ask: parseFloat(ex["9. Ask Price"]) || price, src: "AV" };
-}
-
-// Twelve Data price
-async function tdPrice(pair: string) {
-  const host = process.env.TWELVE_DATA_API_HOST || "twelve-data1.p.rapidapi.com";
-  const r = await fetchRotated(`https://${host}/price?symbol=${pair}&interval=1min`, host);
-  if (!r?.ok) return null;
-  const d = await r.json();
-  const price = parseFloat(d.price);
-  return isNaN(price) ? null : { price, bid: parseFloat(d.bid) || price, ask: parseFloat(d.ask) || price, src: "TD" };
-}
-
-// Alpha Vantage candles
-async function avCandles(from: string, to: string) {
-  const host = process.env.ALPHA_VANTAGE_API_HOST || "alpha-vantage.p.rapidapi.com";
-  const r = await fetchRotated(
-    `https://${host}/query?function=FX_INTRADAY&from_symbol=${from}&to_symbol=${to}&interval=5min&outputsize=20`, host, 10000
-  );
-  if (!r?.ok) return [];
-  const d = await r.json();
+  if (!response?.ok) return [];
+  const d = await response.json();
   const key = Object.keys(d).find((k) => k.includes("Time Series"));
   if (!key) return [];
   return Object.values(d[key]).map((v: any) => ({
@@ -115,10 +157,10 @@ async function avCandles(from: string, to: string) {
 }
 
 /* ─── Analysis Engine ─── */
-function analyze(pair: string, price: number, candles: any[], src: string) {
+function analyze(pair: string, price: number, candles: any[], src: string, key: string) {
   const dec = pair.includes("XAU") || pair.includes("JPY") ? 2 : 4;
+
   if (candles.length < 3) {
-    // Price-only fallback
     const type = Math.random() > 0.5 ? "BUY" : "SELL";
     const atr = price * (pair.includes("XAU") ? 0.0015 : pair.includes("JPY") ? 0.0008 : 0.0008);
     return {
@@ -127,7 +169,9 @@ function analyze(pair: string, price: number, candles: any[], src: string) {
       tp: +(type === "BUY" ? price + atr * 2.5 : price - atr * 2.5).toFixed(dec),
       sl: +(type === "BUY" ? price - atr * 1.5 : price + atr * 1.5).toFixed(dec),
       timestamp: new Date().toISOString(), status: "ACTIVE", confidence: 70,
-      reasoning: [type === "BUY" ? "Price momentum up" : "Price momentum down"], indicators: { Price: price.toFixed(dec) }, source: "RapidAPI (Dual Key)",
+      reasoning: [type === "BUY" ? "Price momentum up" : "Price momentum down"],
+      indicators: { Price: price.toFixed(dec) },
+      source: "RapidAPI", apiSource: src, apiKey: key,
     };
   }
 
@@ -139,7 +183,6 @@ function analyze(pair: string, price: number, candles: any[], src: string) {
   ind.O = c0.o.toFixed(dec); ind.H = c0.h.toFixed(dec);
   ind.L = c0.l.toFixed(dec); ind.C = c0.c.toFixed(dec);
 
-  // Patterns
   if (c1.c < c1.o && c0.c > c0.o && c0.c > c1.o) { buy += 3; reasons.push("Bullish engulfing"); }
   else if (c1.c > c1.o && c0.c < c0.o && c0.c < c1.o) { sell += 3; reasons.push("Bearish engulfing"); }
 
@@ -166,12 +209,11 @@ function analyze(pair: string, price: number, candles: any[], src: string) {
   if (c0.c <= sup * 1.0005) { buy += 2; reasons.push("At support"); }
   else if (c0.c >= res * 0.9995) { sell += 2; reasons.push("At resistance"); }
 
-  // Volume-like check (range expansion)
   if (candles.length >= 5) {
     const avgRange = candles.slice(1, 5).reduce((a, x) => a + (x.h - x.l), 0) / 4;
     if (range > avgRange * 1.5) {
-      if (c0.c > c0.o) { buy += 1; reasons.push("Expanding range bullish"); }
-      else { sell += 1; reasons.push("Expanding range bearish"); }
+      if (c0.c > c0.o) { buy += 1; reasons.push("Range expansion bullish"); }
+      else { sell += 1; reasons.push("Range expansion bearish"); }
     }
   }
 
@@ -189,58 +231,65 @@ function analyze(pair: string, price: number, candles: any[], src: string) {
     tp: +(type === "BUY" ? price + atr * 2.5 : price - atr * 2.5).toFixed(dec),
     sl: +(type === "BUY" ? price - atr * 1.5 : price + atr * 1.5).toFixed(dec),
     timestamp: new Date().toISOString(), status: "ACTIVE", confidence: conf,
-    reasoning: reasons, indicators: ind, source: "RapidAPI (Dual Key)",
+    reasoning: reasons, indicators: ind,
+    source: "RapidAPI", apiSource: src, apiKey: key,
   };
 }
+
+/* ─── Pairs ─── */
+const PAIRS = [
+  { pair: "EUR/USD", from: "EUR", to: "USD" },
+  { pair: "GBP/USD", from: "GBP", to: "USD" },
+  { pair: "USD/JPY", from: "USD", to: "JPY" },
+  { pair: "AUD/USD", from: "AUD", to: "USD" },
+  { pair: "USD/CAD", from: "USD", to: "CAD" },
+  { pair: "EUR/GBP", from: "EUR", to: "GBP" },
+  { pair: "EUR/JPY", from: "EUR", to: "JPY" },
+  { pair: "GBP/JPY", from: "GBP", to: "JPY" },
+  { pair: "XAU/USD", from: "XAU", to: "USD" },
+];
 
 /* ─── Cache ─── */
 let cachedSignals: any[] = [];
 let lastSignalTime = 0;
-const SIGNAL_TTL = 15000; // 15 seconds — signals refresh fast with dual keys
+const SIGNAL_TTL = 15000;
 
 export async function GET() {
-  // Return cached if fresh
   if (cachedSignals.length > 0 && Date.now() - lastSignalTime < SIGNAL_TTL) {
-    return NextResponse.json({ source: "cached", signals: cachedSignals, cached: true, keys: keys.creds.length });
+    return NextResponse.json({ source: "cached", signals: cachedSignals, cached: true, apiStats: api.stats });
   }
 
   try {
     const signals: any[] = [];
-    // Analyze 5 random pairs per request
     const shuffled = [...PAIRS].sort(() => Math.random() - 0.5).slice(0, 5);
 
-    for (const { pair, from, to } of shuffled) {
+    for (let i = 0; i < shuffled.length; i++) {
+      const { pair, from, to } = shuffled[i];
       try {
-        // Try AV first, fallback to TD
-        let pd = await avRate(from, to);
-        let src = "Alpha Vantage";
-        if (!pd) { pd = await tdPrice(pair); src = "Twelve Data"; }
+        // SMART ALTERNATION: even index → AV first, odd → TD first
+        const preferAV = i % 2 === 0;
+        const pd = await fetchPrice(pair, from, to, preferAV);
         if (!pd) continue;
 
+        // Candles always from AV (only AV has FX_INTRADAY)
         let candles: any[] = [];
-        try { candles = await avCandles(from, to); } catch {}
+        try { candles = await fetchCandles(from, to); } catch {}
 
-        const sig = analyze(pair, pd.price, candles, src);
-        if (sig) {
-          sig.dataSource = pd.src;
-          signals.push(sig);
-        }
+        const sig = analyze(pair, pd.price, candles, pd.src, pd.key);
+        if (sig) signals.push(sig);
       } catch {}
-      await new Promise((r) => setTimeout(r, 300)); // Small delay to avoid burst
+      await new Promise(r => setTimeout(r, 250));
     }
 
-    if (signals.length > 0) {
-      cachedSignals = signals;
-      lastSignalTime = Date.now();
-    }
+    if (signals.length > 0) { cachedSignals = signals; lastSignalTime = Date.now(); }
 
     return NextResponse.json({
-      source: signals.length > 0 ? "RapidAPI (Dual Key)" : "empty",
+      source: signals.length > 0 ? "RapidAPI (Dual Account)" : "empty",
       signals: signals.length > 0 ? signals : cachedSignals,
-      keys: keys.creds.length,
       generated: signals.length,
+      apiStats: api.stats,
     });
   } catch {
-    return NextResponse.json({ source: "error", signals: cachedSignals, keys: keys.creds.length });
+    return NextResponse.json({ source: "error", signals: cachedSignals, apiStats: api.stats });
   }
 }

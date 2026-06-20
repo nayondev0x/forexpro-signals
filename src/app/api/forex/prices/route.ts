@@ -1,65 +1,174 @@
 import { NextResponse } from "next/server";
 
-/* ─── Key Pool ─── */
-interface Cred { key: string; host: string; limitedUntil: number; }
+/* ═══════════════════════════════════════════════════════════
+   SMART DUAL-API KEY SYSTEM
+   - 2 RapidAPI accounts × 2 APIs (Twelve Data + Alpha Vantage) = 4x capacity
+   - Pair 0,2,4... → Alpha Vantage first, Twelve Data fallback
+   - Pair 1,3,5... → Twelve Data first, Alpha Vantage fallback
+   - Per-KEY rate limiting (not per-host)
+   - When one key hits 429, auto-switch to next available key
+   ═══════════════════════════════════════════════════════════ */
 
-class KeyPool {
-  creds: Cred[] = [];
-  private idx = 0;
+interface ApiKey {
+  id: string;          // unique id for tracking
+  key: string;
+  host: string;
+  service: "TD" | "AV";  // Twelve Data or Alpha Vantage
+  limitedUntil: number;
+  callCount: number;
+}
+
+class DualApiManager {
+  private tdKeys: ApiKey[] = [];
+  private avKeys: ApiKey[] = [];
+  private tdIdx = 0;
+  private avIdx = 0;
+
   constructor() {
+    // Twelve Data keys
     if (process.env.TWELVE_DATA_API_KEY)
-      this.creds.push({ key: process.env.TWELVE_DATA_API_KEY, host: process.env.TWELVE_DATA_API_HOST || "twelve-data1.p.rapidapi.com", limitedUntil: 0 });
+      this.tdKeys.push({ id: "TD-1", key: process.env.TWELVE_DATA_API_KEY, host: process.env.TWELVE_DATA_API_HOST || "twelve-data1.p.rapidapi.com", service: "TD", limitedUntil: 0, callCount: 0 });
     if (process.env.TWELVE_DATA_API_KEY_2)
-      this.creds.push({ key: process.env.TWELVE_DATA_API_KEY_2, host: process.env.TWELVE_DATA_API_HOST_2 || "twelve-data1.p.rapidapi.com", limitedUntil: 0 });
+      this.tdKeys.push({ id: "TD-2", key: process.env.TWELVE_DATA_API_KEY_2, host: process.env.TWELVE_DATA_API_HOST_2 || "twelve-data1.p.rapidapi.com", service: "TD", limitedUntil: 0, callCount: 0 });
+
+    // Alpha Vantage keys
     if (process.env.ALPHA_VANTAGE_API_KEY)
-      this.creds.push({ key: process.env.ALPHA_VANTAGE_API_KEY, host: process.env.ALPHA_VANTAGE_API_HOST || "alpha-vantage.p.rapidapi.com", limitedUntil: 0 });
+      this.avKeys.push({ id: "AV-1", key: process.env.ALPHA_VANTAGE_API_KEY, host: process.env.ALPHA_VANTAGE_API_HOST || "alpha-vantage.p.rapidapi.com", service: "AV", limitedUntil: 0, callCount: 0 });
     if (process.env.ALPHA_VANTAGE_API_KEY_2)
-      this.creds.push({ key: process.env.ALPHA_VANTAGE_API_KEY_2, host: process.env.ALPHA_VANTAGE_API_HOST_2 || "alpha-vantage.p.rapidapi.com", limitedUntil: 0 });
+      this.avKeys.push({ id: "AV-2", key: process.env.ALPHA_VANTAGE_API_KEY_2, host: process.env.ALPHA_VANTAGE_API_HOST_2 || "alpha-vantage.p.rapidapi.com", service: "AV", limitedUntil: 0, callCount: 0 });
   }
-  get(preferredHost?: string): Cred {
+
+  /** Get next available key from a specific service pool */
+  private getNextKey(pool: ApiKey[], idxRef: { value: number }): ApiKey | null {
     const now = Date.now();
-    if (preferredHost) {
-      const p = this.creds.find(c => c.host === preferredHost && c.limitedUntil <= now);
-      if (p) return p;
+    const available = pool.filter(k => k.limitedUntil <= now);
+    if (available.length === 0) return null; // All keys rate limited
+
+    // Round-robin within available keys
+    const start = idxRef.value % pool.length;
+    for (let i = 0; i < pool.length; i++) {
+      const j = (start + i) % pool.length;
+      if (pool[j].limitedUntil <= now) {
+        idxRef.value = j + 1;
+        pool[j].callCount++;
+        return pool[j];
+      }
     }
-    for (let i = 0; i < this.creds.length; i++) {
-      const j = (this.idx + i) % this.creds.length;
-      if (this.creds[j].limitedUntil <= now) { this.idx = (j + 1) % this.creds.length; return this.creds[j]; }
-    }
-    return [...this.creds].sort((a, b) => a.limitedUntil - b.limitedUntil)[0];
+    return available[0];
   }
-  markLimited(host: string, secs = 60) {
-    const c = this.creds.find(x => x.host === host);
-    if (c) c.limitedUntil = Date.now() + secs * 1000;
+
+  /** Get a Twelve Data key */
+  getTD(): ApiKey | null {
+    return this.getNextKey(this.tdKeys, { value: this.tdIdx });
+  }
+
+  /** Get an Alpha Vantage key */
+  getAV(): ApiKey | null {
+    return this.getNextKey(this.avKeys, { value: this.avIdx });
+  }
+
+  /** Mark a specific key as rate limited */
+  markLimited(keyId: string, secs = 60) {
+    const allKeys = [...this.tdKeys, ...this.avKeys];
+    const k = allKeys.find(x => x.id === keyId);
+    if (k) {
+      k.limitedUntil = Date.now() + secs * 1000;
+      console.log(`[API] ${keyId} rate limited for ${secs}s`);
+    }
+  }
+
+  /** Fetch with smart retry across keys and services */
+  async fetchWithFailover(url: string, preferredService: "AV" | "TD"): Promise<{ response: Response | null; usedKey: string; usedService: string }> {
+    const isAV = preferredService === "AV";
+
+    // Try preferred service first (both keys if needed)
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const key = isAV ? this.getAV() : this.getTD();
+      if (!key) break;
+
+      try {
+        const r = await fetch(url, {
+          headers: { "x-rapidapi-key": key.key, "x-rapidapi-host": key.host },
+          next: { revalidate: 0 },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (r.status === 429) {
+          this.markLimited(key.id, 60);
+          continue; // Try next key in same service
+        }
+        return { response: r, usedKey: key.id, usedService: key.service };
+      } catch { continue; }
+    }
+
+    // Preferred service exhausted — try the OTHER service (failover!)
+    const fallbackService: "AV" | "TD" = isAV ? "TD" : "AV";
+    const fbKey = fallbackService === "AV" ? this.getAV() : this.getTD();
+    if (fbKey) {
+      try {
+        const r = await fetch(url, {
+          headers: { "x-rapidapi-key": fbKey.key, "x-rapidapi-host": fbKey.host },
+          next: { revalidate: 0 },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (r.status === 429) this.markLimited(fbKey.id, 60);
+        else return { response: r, usedKey: fbKey.id, usedService: fbKey.service };
+      } catch {}
+    }
+
+    return { response: null, usedKey: "none", usedService: "none" };
+  }
+
+  get stats() {
+    return {
+      tdKeys: this.tdKeys.length,
+      avKeys: this.avKeys.length,
+      totalKeys: this.tdKeys.length + this.avKeys.length,
+      tdCalls: this.tdKeys.reduce((a, k) => a + k.callCount, 0),
+      avCalls: this.avKeys.reduce((a, k) => a + k.callCount, 0),
+      tdLimited: this.tdKeys.filter(k => k.limitedUntil > Date.now()).length,
+      avLimited: this.avKeys.filter(k => k.limitedUntil > Date.now()).length,
+    };
   }
 }
 
-const keys = new KeyPool();
+const api = new DualApiManager();
+console.log(`[Prices API] TD keys: ${api.stats.tdKeys}, AV keys: ${api.stats.avKeys}`);
 
-async function fetchRotated(url: string, preferredHost: string, timeout = 8000) {
-  const cred = keys.get(preferredHost);
-  try {
-    const r = await fetch(url, {
-      headers: { "x-rapidapi-key": cred.key, "x-rapidapi-host": cred.host },
-      next: { revalidate: 0 },
-      signal: AbortSignal.timeout(timeout),
-    });
-    if (r.status === 429) {
-      keys.markLimited(cred.host, 60);
-      const c2 = keys.get();
-      if (c2.host === cred.host) return r;
-      const r2 = await fetch(url, {
-        headers: { "x-rapidapi-key": c2.key, "x-rapidapi-host": c2.host },
-        next: { revalidate: 0 },
-        signal: AbortSignal.timeout(timeout),
-      });
-      if (r2.status === 429) keys.markLimited(c2.host, 60);
-      return r2;
-    }
-    return r;
-  } catch { return null as any; }
+/* ─── Data Fetchers ─── */
+
+// Alpha Vantage exchange rate
+async function fetchAVRate(from: string, to: string) {
+  const host = process.env.ALPHA_VANTAGE_API_HOST || "alpha-vantage.p.rapidapi.com";
+  const url = `https://${host}/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${from}&to_currency=${to}`;
+  const { response, usedKey, usedService } = await api.fetchWithFailover(url, "AV");
+  if (!response?.ok) return null;
+  const d = await response.json();
+  const ex = d?.["Realtime Currency Exchange Rate"];
+  if (!ex) return null;
+  const price = parseFloat(ex["5. Exchange Rate"]);
+  if (isNaN(price)) return null;
+  return {
+    price, bid: parseFloat(ex["8. Bid Price"]) || price, ask: parseFloat(ex["9. Ask Price"]) || price,
+    src: usedService, key: usedKey,
+  };
 }
 
+// Twelve Data price
+async function fetchTDPrice(pair: string) {
+  const host = process.env.TWELVE_DATA_API_HOST || "twelve-data1.p.rapidapi.com";
+  const url = `https://${host}/price?symbol=${pair}&interval=1min`;
+  const { response, usedKey, usedService } = await api.fetchWithFailover(url, "TD");
+  if (!response?.ok) return null;
+  const d = await response.json();
+  const price = parseFloat(d.price);
+  if (isNaN(price)) return null;
+  return {
+    price, bid: parseFloat(d.bid) || price, ask: parseFloat(d.ask) || price,
+    src: usedService, key: usedKey,
+  };
+}
+
+/* ─── Pairs ─── */
 const PAIRS = [
   { pair: "EUR/USD", from: "EUR", to: "USD" },
   { pair: "GBP/USD", from: "GBP", to: "USD" },
@@ -75,85 +184,76 @@ const PAIRS = [
   { pair: "XAG/USD", from: "XAG", to: "USD" },
 ];
 
-// In-memory price cache for change calculation
 const priceCache = new Map<string, number>();
 
-function getSpread(pair: string) {
-  if (pair.includes("XAU")) return 0.30;
-  if (pair.includes("XAG")) return 0.03;
-  if (pair.includes("JPY")) return 0.03;
-  return 0.00015;
-}
-function getDec(pair: string) {
-  if (pair.includes("XAU") || pair.includes("XAG") || pair.includes("JPY")) return 2;
-  return 5;
-}
+function getSpread(p: string) { return p.includes("XAU") ? 0.30 : p.includes("XAG") ? 0.03 : p.includes("JPY") ? 0.03 : 0.00015; }
+function getDec(p: string) { return (p.includes("XAU") || p.includes("XAG") || p.includes("JPY")) ? 2 : 5; }
 
 export async function GET() {
   try {
     const prices = [];
     let liveCount = 0;
+    let avCount = 0, tdCount = 0;
+    const sources: string[] = [];
 
-    for (const { pair, from, to } of PAIRS) {
+    for (let i = 0; i < PAIRS.length; i++) {
+      const { pair, from, to } = PAIRS[i];
       try {
-        // Try Alpha Vantage first
-        const avHost = process.env.ALPHA_VANTAGE_API_HOST || "alpha-vantage.p.rapidapi.com";
-        let url = `https://${avHost}/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${from}&to_currency=${to}`;
-        let res = await fetchRotated(url, avHost);
-        let rate = res?.ok ? (await res.json())?.["Realtime Currency Exchange Rate"] : null;
+        // SMART ALTERNATION: even index → AV first, odd index → TD first
+        // This spreads the load equally across both APIs
+        const preferAV = i % 2 === 0;
+        let data = preferAV ? await fetchAVRate(from, to) : await fetchTDPrice(pair);
 
-        // Fallback to Twelve Data
-        if (!rate) {
-          const tdHost = process.env.TWELVE_DATA_API_HOST || "twelve-data1.p.rapidapi.com";
-          url = `https://${tdHost}/price?symbol=${pair}&interval=1min`;
-          res = await fetchRotated(url, tdHost);
-          if (res?.ok) {
-            const d = await res.json();
-            const price = parseFloat(d.price);
-            if (!isNaN(price)) {
-              const bid = parseFloat(d.bid) || price;
-              const ask = parseFloat(d.ask) || price;
-              const spread = getSpread(pair);
-              const dec = getDec(pair);
-              const prev = priceCache.get(pair) || bid;
-              const chg = bid - prev;
-              const chgPct = prev > 0 ? (chg / prev) * 100 : 0;
-              priceCache.set(pair, bid);
-              prices.push({ pair, bid: +bid.toFixed(dec), ask: +ask.toFixed(dec), spread: +spread.toFixed(dec), change: +chg.toFixed(dec), changePercent: +chgPct.toFixed(3) });
-              liveCount++;
-              continue;
-            }
-          }
-          continue;
+        // If preferred API failed, try the other one
+        if (!data) {
+          data = preferAV ? await fetchTDPrice(pair) : await fetchAVRate(from, to);
         }
 
-        const price = parseFloat(rate["5. Exchange Rate"]);
-        const bid = parseFloat(rate["8. Bid Price"]) || price;
-        const ask = parseFloat(rate["9. Ask Price"]) || price;
+        if (!data) continue;
+
         const spread = getSpread(pair);
         const dec = getDec(pair);
-        const prev = priceCache.get(pair) || bid;
-        const chg = bid - prev;
+        const prev = priceCache.get(pair) || data.bid;
+        const chg = data.bid - prev;
         const chgPct = prev > 0 ? (chg / prev) * 100 : 0;
-        priceCache.set(pair, bid);
+        priceCache.set(pair, data.bid);
+
+        if (data.src === "AV") avCount++; else tdCount++;
+        sources.push(`${pair}→${data.src}`);
 
         prices.push({
           pair,
-          bid: +bid.toFixed(dec),
-          ask: +ask.toFixed(dec),
+          bid: +data.bid.toFixed(dec),
+          ask: +data.ask.toFixed(dec),
           spread: +spread.toFixed(dec),
           change: +chg.toFixed(dec),
           changePercent: +chgPct.toFixed(3),
+          source: data.src,
+          key: data.key,
         });
         liveCount++;
-      } catch {
-        // skip failed pair
-      }
+
+        // Small delay between pairs to avoid burst rate limiting
+        await new Promise(r => setTimeout(r, 200));
+      } catch { /* skip */ }
     }
 
-    return NextResponse.json({ source: "RapidAPI (Dual Key)", liveCount, total: PAIRS.length, prices, keys: keys.creds.length });
+    const st = api.stats;
+    return NextResponse.json({
+      source: "RapidAPI (Dual Account)",
+      liveCount,
+      total: PAIRS.length,
+      prices,
+      apiStats: {
+        tdKeys: st.tdKeys, avKeys: st.avKeys, totalKeys: st.totalKeys,
+        avUsed: avCount, tdUsed: tdCount,
+        tdCalls: st.tdCalls, avCalls: st.avCalls,
+        tdLimited: st.tdLimited, avLimited: st.avLimited,
+        sources,
+      },
+    });
   } catch (error) {
-    console.error("Prices error:", error);
-    return NextResponse.json({ source: "error", liveCount: 0, total: PAIRS.length, prices: [], keys: keys.creds.length }, { status: 500 });
+    console.error("[Prices] Error:", error);
+    return NextResponse.json({ source: "error", liveCount: 0, total: PAIRS.length, prices: [] }, { status: 500 });
   }
 }

@@ -1,178 +1,116 @@
 // Server-side only — never import this in client components
 
-/* ─── Key Pool with Auto-Rotation ─── */
-interface ApiCredential {
+/* ═══════════════════════════════════════════════════════════
+   DUAL-API SMART KEY SYSTEM (Shared Library)
+   - 2 RapidAPI accounts × 2 services = 4x free capacity
+   - Per-KEY rate limiting (unique id per key, not per host)
+   - Each API (TD/AV) has its own key pool with round-robin
+   - Failover: if preferred API exhausted → auto switch to other
+   ═══════════════════════════════════════════════════════════ */
+
+interface ApiKey {
+  id: string;
   key: string;
   host: string;
-  rateLimitedUntil: number; // timestamp when this key becomes available again
+  service: "TD" | "AV";
+  limitedUntil: number;
 }
 
-class KeyPool {
-  private credentials: ApiCredential[] = [];
-  private currentIdx = 0;
+class DualApiManager {
+  private tdKeys: ApiKey[] = [];
+  private avKeys: ApiKey[] = [];
+  private tdIdx = 0;
+  private avIdx = 0;
 
   constructor() {
-    // Twelve Data keys
-    if (process.env.TWELVE_DATA_API_KEY) {
-      this.credentials.push({
-        key: process.env.TWELVE_DATA_API_KEY,
-        host: process.env.TWELVE_DATA_API_HOST || "twelve-data1.p.rapidapi.com",
-        rateLimitedUntil: 0,
-      });
-    }
-    if (process.env.TWELVE_DATA_API_KEY_2) {
-      this.credentials.push({
-        key: process.env.TWELVE_DATA_API_KEY_2,
-        host: process.env.TWELVE_DATA_API_HOST_2 || "twelve-data1.p.rapidapi.com",
-        rateLimitedUntil: 0,
-      });
-    }
+    if (process.env.TWELVE_DATA_API_KEY)
+      this.tdKeys.push({ id: "TD-1", key: process.env.TWELVE_DATA_API_KEY, host: process.env.TWELVE_DATA_API_HOST || "twelve-data1.p.rapidapi.com", service: "TD", limitedUntil: 0 });
+    if (process.env.TWELVE_DATA_API_KEY_2)
+      this.tdKeys.push({ id: "TD-2", key: process.env.TWELVE_DATA_API_KEY_2, host: process.env.TWELVE_DATA_API_HOST_2 || "twelve-data1.p.rapidapi.com", service: "TD", limitedUntil: 0 });
+    if (process.env.ALPHA_VANTAGE_API_KEY)
+      this.avKeys.push({ id: "AV-1", key: process.env.ALPHA_VANTAGE_API_KEY, host: process.env.ALPHA_VANTAGE_API_HOST || "alpha-vantage.p.rapidapi.com", service: "AV", limitedUntil: 0 });
+    if (process.env.ALPHA_VANTAGE_API_KEY_2)
+      this.avKeys.push({ id: "AV-2", key: process.env.ALPHA_VANTAGE_API_KEY_2, host: process.env.ALPHA_VANTAGE_API_HOST_2 || "alpha-vantage.p.rapidapi.com", service: "AV", limitedUntil: 0 });
 
-    // Alpha Vantage keys (separate pool)
-    if (process.env.ALPHA_VANTAGE_API_KEY) {
-      this.credentials.push({
-        key: process.env.ALPHA_VANTAGE_API_KEY,
-        host: process.env.ALPHA_VANTAGE_API_HOST || "alpha-vantage.p.rapidapi.com",
-        rateLimitedUntil: 0,
-      });
-    }
-    if (process.env.ALPHA_VANTAGE_API_KEY_2) {
-      this.credentials.push({
-        key: process.env.ALPHA_VANTAGE_API_KEY_2,
-        host: process.env.ALPHA_VANTAGE_API_HOST_2 || "alpha-vantage.p.rapidapi.com",
-        rateLimitedUntil: 0,
-      });
-    }
+    console.log(`[DualAPI] TD keys: ${this.tdKeys.length}, AV keys: ${this.avKeys.length} (total: ${this.tdKeys.length + this.avKeys.length})`);
   }
 
-  /** Get next available credential, skipping rate-limited ones */
-  get(preferredHost?: string): ApiCredential {
+  private getNext(pool: ApiKey[], idxRef: { value: number }): ApiKey | null {
     const now = Date.now();
-    // Try preferred host first
-    if (preferredHost) {
-      const pref = this.credentials.find(
-        (c) => c.host === preferredHost && c.rateLimitedUntil <= now
-      );
-      if (pref) return pref;
+    for (let i = 0; i < pool.length; i++) {
+      const j = (idxRef.value + i) % pool.length;
+      if (pool[j].limitedUntil <= now) { idxRef.value = j + 1; return pool[j]; }
     }
-    // Round-robin through available keys
-    for (let i = 0; i < this.credentials.length; i++) {
-      const idx = (this.currentIdx + i) % this.credentials.length;
-      const cred = this.credentials[idx];
-      if (cred.rateLimitedUntil <= now) {
-        this.currentIdx = (idx + 1) % this.credentials.length;
-        return cred;
-      }
-    }
-    // All rate limited — pick the one that recovers soonest
-    const sorted = [...this.credentials].sort((a, b) => a.rateLimitedUntil - b.rateLimitedUntil);
-    return sorted[0];
+    return null;
   }
 
-  /** Mark a credential as rate-limited for `seconds` duration */
-  markRateLimited(host: string, seconds: number = 60) {
-    const cred = this.credentials.find((c) => c.host === host);
-    if (cred) {
-      cred.rateLimitedUntil = Date.now() + seconds * 1000;
-      console.log(`[KeyPool] Rate limited ${host} for ${seconds}s`);
-    }
+  getTD() { return this.getNext(this.tdKeys, { value: this.tdIdx }); }
+  getAV() { return this.getNext(this.avKeys, { value: this.avIdx }); }
+
+  markLimited(keyId: string, secs = 60) {
+    const k = [...this.tdKeys, ...this.avKeys].find(x => x.id === keyId);
+    if (k) { k.limitedUntil = Date.now() + secs * 1000; }
   }
 
-  get keyCount() {
-    return this.credentials.length;
+  async fetchTD(endpoint: string, params: Record<string, string> = {}) {
+    // Try up to 2 TD keys
+    for (let i = 0; i < 2; i++) {
+      const k = this.getTD();
+      if (!k) break;
+      const url = new URL(`https://${k.host}${endpoint}`);
+      Object.entries(params).forEach(([pk, v]) => url.searchParams.set(pk, v));
+      try {
+        const r = await fetch(url.toString(), { headers: { "x-rapidapi-key": k.key, "x-rapidapi-host": k.host } });
+        if (r.status === 429) { this.markLimited(k.id, 60); continue; }
+        if (!r.ok) throw new Error(`TD ${r.status}`);
+        return await r.json();
+      } catch (e) { if ((e as Error).message?.includes("429")) { this.markLimited(k.id, 60); continue; } throw e; }
+    }
+    throw new Error("TwelveData: All keys rate limited");
+  }
+
+  async fetchAV(params: Record<string, string>) {
+    for (let i = 0; i < 2; i++) {
+      const k = this.getAV();
+      if (!k) break;
+      const url = new URL(`https://${k.host}/query`);
+      Object.entries(params).forEach(([pk, v]) => url.searchParams.set(pk, v));
+      try {
+        const r = await fetch(url.toString(), { headers: { "x-rapidapi-key": k.key, "x-rapidapi-host": k.host } });
+        if (r.status === 429) { this.markLimited(k.id, 60); continue; }
+        if (!r.ok) throw new Error(`AV ${r.status}`);
+        return await r.json();
+      } catch (e) { if ((e as Error).message?.includes("429")) { this.markLimited(k.id, 60); continue; } throw e; }
+    }
+    throw new Error("AlphaVantage: All keys rate limited");
+  }
+
+  get stats() {
+    const now = Date.now();
+    return {
+      tdKeys: this.tdKeys.length, avKeys: this.avKeys.length,
+      totalKeys: this.tdKeys.length + this.avKeys.length,
+      tdLimited: this.tdKeys.filter(k => k.limitedUntil > now).length,
+      avLimited: this.avKeys.filter(k => k.limitedUntil > now).length,
+    };
   }
 }
 
-const keyPool = new KeyPool();
-console.log(`[KeyPool] Initialized with ${keyPool.keyCount} API credentials`);
+const api = new DualApiManager();
 
-/* ─── Twelve Data Client (with key rotation) ─── */
-async function twelveData(endpoint: string, params: Record<string, string> = {}) {
-  const cred = keyPool.get(process.env.TWELVE_DATA_API_HOST);
-  const url = new URL(`https://${cred.host}${endpoint}`);
-  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-
-  const res = await fetch(url.toString(), {
-    headers: { "x-rapidapi-key": cred.key, "x-rapidapi-host": cred.host },
-    next: { revalidate: 0 },
-  });
-
-  if (res.status === 429) {
-    // Rate limited — try with another key
-    keyPool.markRateLimited(cred.host, 60);
-    const cred2 = keyPool.get();
-    if (cred2.host === cred.host) {
-      // All keys rate limited
-      throw new Error(`TwelveData 429: All keys rate limited`);
-    }
-    console.log(`[TwelveData] Retrying with alternate key...`);
-    const res2 = await fetch(url.toString(), {
-      headers: { "x-rapidapi-key": cred2.key, "x-rapidapi-host": cred2.host },
-      next: { revalidate: 0 },
-    });
-    if (!res2.ok) {
-      if (res2.status === 429) keyPool.markRateLimited(cred2.host, 60);
-      throw new Error(`TwelveData ${res2.status}: ${res2.statusText}`);
-    }
-    return res2.json();
-  }
-
-  if (!res.ok) throw new Error(`TwelveData ${res.status}: ${res.statusText}`);
-  return res.json();
-}
-
-/* ─── Alpha Vantage Client (with key rotation) ─── */
-async function alphaVantage(params: Record<string, string>) {
-  const cred = keyPool.get(process.env.ALPHA_VANTAGE_API_HOST);
-  const url = new URL(`https://${cred.host}/query`);
-  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-
-  const res = await fetch(url.toString(), {
-    headers: { "x-rapidapi-key": cred.key, "x-rapidapi-host": cred.host },
-    next: { revalidate: 0 },
-  });
-
-  if (res.status === 429) {
-    keyPool.markRateLimited(cred.host, 60);
-    const cred2 = keyPool.get();
-    if (cred2.host === cred.host) {
-      throw new Error(`AlphaVantage 429: All keys rate limited`);
-    }
-    console.log(`[AlphaVantage] Retrying with alternate key...`);
-    const res2 = await fetch(url.toString(), {
-      headers: { "x-rapidapi-key": cred2.key, "x-rapidapi-host": cred2.host },
-      next: { revalidate: 0 },
-    });
-    if (!res2.ok) {
-      if (res2.status === 429) keyPool.markRateLimited(cred2.host, 60);
-      throw new Error(`AlphaVantage ${res2.status}: ${res2.statusText}`);
-    }
-    return res2.json();
-  }
-
-  if (!res.ok) throw new Error(`AlphaVantage ${res.status}: ${res.statusText}`);
-  return res.json();
-}
-
-/* ─── Forex Pairs we track ─── */
+/* ─── Forex Pairs ─── */
 export const FOREX_PAIRS = [
   "EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF",
   "AUD/USD", "NZD/USD", "USD/CAD", "EUR/GBP",
   "EUR/JPY", "GBP/JPY", "XAU/USD", "XAG/USD",
 ];
 
-// Twelve Data expects symbols with slash: EUR/USD, GBP/JPY
-function pairToSymbol(pair: string) {
-  return pair; // Already in correct format: EUR/USD
-}
+function pairToSymbol(pair: string) { return pair; }
 
-/* ─── Get real-time price for a single pair ─── */
+/* ─── Get real-time price (TD) ─── */
 export async function getRealPrice(pair: string) {
   try {
-    const data = await twelveData("/price", {
-      symbol: pairToSymbol(pair),
-      interval: "1min",
-    });
+    const data = await api.fetchTD("/price", { symbol: pairToSymbol(pair), interval: "1min" });
     return {
       pair,
       price: parseFloat(data.price) || 0,
@@ -185,41 +123,22 @@ export async function getRealPrice(pair: string) {
       low: parseFloat(data.low) || 0,
       open: parseFloat(data.open) || 0,
     };
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
-/* ─── Get real-time quote for a pair ─── */
+/* ─── Get quote (TD) ─── */
 export async function getQuote(pair: string) {
-  try {
-    const data = await twelveData("/quote", {
-      symbol: pairToSymbol(pair),
-      interval: "1min",
-    });
-    return data;
-  } catch {
-    return null;
-  }
+  try { return await api.fetchTD("/quote", { symbol: pairToSymbol(pair), interval: "1min" }); } catch { return null; }
 }
 
-/* ─── Get exchange rate ─── */
+/* ─── Exchange rate (TD) ─── */
 export async function getExchangeRate(from: string, to: string) {
-  try {
-    const data = await twelveData("/exchange_rate", {
-      symbol: `${from}/${to}`,
-    });
-    return data;
-  } catch {
-    return null;
-  }
+  try { return await api.fetchTD("/exchange_rate", { symbol: `${from}/${to}` }); } catch { return null; }
 }
 
-/* ─── Get all live prices ─── */
+/* ─── All live prices (TD) ─── */
 export async function getAllLivePrices() {
-  const results = await Promise.allSettled(
-    FOREX_PAIRS.map((pair) => getRealPrice(pair))
-  );
+  const results = await Promise.allSettled(FOREX_PAIRS.map((pair) => getRealPrice(pair)));
   return results
     .filter((r): r is PromiseFulfilledResult<NonNullable<Awaited<ReturnType<typeof getRealPrice>>>> =>
       r.status === "fulfilled" && r.value !== null
@@ -227,26 +146,12 @@ export async function getAllLivePrices() {
     .map((r) => r.value);
 }
 
-/* ─── Get technical indicator (Twelve Data) ─── */
-export async function getIndicator(
-  pair: string,
-  indicator: string,
-  params: Record<string, string> = {}
-) {
-  try {
-    const data = await twelveData(`/${indicator}`, {
-      symbol: pairToSymbol(pair),
-      interval: "1min",
-      outputsize: "30",
-      ...params,
-    });
-    return data;
-  } catch {
-    return null;
-  }
+/* ─── Technical indicator (TD) ─── */
+export async function getIndicator(pair: string, indicator: string, params: Record<string, string> = {}) {
+  try { return await api.fetchTD(`/${indicator}`, { symbol: pairToSymbol(pair), interval: "1min", outputsize: "30", ...params }); } catch { return null; }
 }
 
-/* ─── Get multiple indicators for a pair ─── */
+/* ─── Multiple indicators (TD) ─── */
 export async function getPairIndicators(pair: string) {
   const [rsi, macd, ema, sma, bbands, atr] = await Promise.allSettled([
     getIndicator(pair, "rsi", { time_period: "14" }),
@@ -256,60 +161,63 @@ export async function getPairIndicators(pair: string) {
     getIndicator(pair, "bbands", { time_period: "20" }),
     getIndicator(pair, "atr", { time_period: "14" }),
   ]);
-
-  const extractValues = (result: PromiseSettledResult<any>) => {
-    if (result.status !== "fulfilled" || !result.value?.values) return [];
-    return result.value.values;
-  };
-
-  return {
-    pair,
-    rsi: extractValues(rsi),
-    macd: extractValues(macd),
-    ema: extractValues(ema),
-    sma: extractValues(sma),
-    bbands: extractValues(bbands),
-    atr: extractValues(atr),
-  };
+  const extract = (r: PromiseSettledResult<any>) => r.status === "fulfilled" && r.value?.values ? r.value.values : [];
+  return { pair, rsi: extract(rsi), macd: extract(macd), ema: extract(ema), sma: extract(sma), bbands: extract(bbands), atr: extract(atr) };
 }
 
-/* ─── Get forex market movers ─── */
+/* ─── Market movers (TD) ─── */
 export async function getForexMarketMovers() {
-  try {
-    const data = await twelveData("/market_movers/forex", {});
-    return data;
-  } catch {
-    return null;
-  }
+  try { return await api.fetchTD("/market_movers/forex", {}); } catch { return null; }
 }
 
-/* ─── Alpha Vantage: Currency Exchange Rate ─── */
+/* ─── AV: Exchange Rate ─── */
 export async function getAVExchangeRate(from: string, to: string) {
-  try {
-    const data = await alphaVantage({
-      function: "CURRENCY_EXCHANGE_RATE",
-      from_currency: from,
-      to_currency: to,
-    });
-    return data["Realtime Currency Exchange Rate"];
-  } catch {
-    return null;
-  }
+  try { const d = await api.fetchAV({ function: "CURRENCY_EXCHANGE_RATE", from_currency: from, to_currency: to }); return d["Realtime Currency Exchange Rate"]; } catch { return null; }
 }
 
-/* ─── Alpha Vantage: FX Intraday ─── */
+/* ─── AV: FX Intraday ─── */
 export async function getAVFxIntraday(from: string, to: string) {
   try {
-    const data = await alphaVantage({
-      function: "FX_INTRADAY",
-      from_symbol: from,
-      to_symbol: to,
-      interval: "5min",
-      outputsize: "100",
-    });
-    const timeSeriesKey = Object.keys(data).find((k) => k.includes("Time Series"));
-    return timeSeriesKey ? data[timeSeriesKey] : null;
-  } catch {
-    return null;
-  }
+    const d = await api.fetchAV({ function: "FX_INTRADAY", from_symbol: from, to_symbol: to, interval: "5min", outputsize: "100" });
+    const k = Object.keys(d).find((k) => k.includes("Time Series"));
+    return k ? d[k] : null;
+  } catch { return null; }
 }
+
+/* ─── Smart dual-source price: AV first, TD fallback ─── */
+export async function getSmartPrice(pair: string, from: string, to: string, preferAV = true) {
+  // Try preferred source first
+  if (preferAV) {
+    try {
+      const d = await api.fetchAV({ function: "CURRENCY_EXCHANGE_RATE", from_currency: from, to_currency: to });
+      const ex = d?.["Realtime Currency Exchange Rate"];
+      if (ex) {
+        const price = parseFloat(ex["5. Exchange Rate"]);
+        if (!isNaN(price)) return { price, bid: parseFloat(ex["8. Bid Price"]) || price, ask: parseFloat(ex["9. Ask Price"]) || price, src: "AV" as const };
+      }
+    } catch {}
+    // Fallback to TD
+    try {
+      const d = await api.fetchTD("/price", { symbol: pair, interval: "1min" });
+      const price = parseFloat(d.price);
+      if (!isNaN(price)) return { price, bid: parseFloat(d.bid) || price, ask: parseFloat(d.ask) || price, src: "TD" as const };
+    } catch {}
+  } else {
+    try {
+      const d = await api.fetchTD("/price", { symbol: pair, interval: "1min" });
+      const price = parseFloat(d.price);
+      if (!isNaN(price)) return { price, bid: parseFloat(d.bid) || price, ask: parseFloat(d.ask) || price, src: "TD" as const };
+    } catch {}
+    try {
+      const d = await api.fetchAV({ function: "CURRENCY_EXCHANGE_RATE", from_currency: from, to_currency: to });
+      const ex = d?.["Realtime Currency Exchange Rate"];
+      if (ex) {
+        const price = parseFloat(ex["5. Exchange Rate"]);
+        if (!isNaN(price)) return { price, bid: parseFloat(ex["8. Bid Price"]) || price, ask: parseFloat(ex["9. Ask Price"]) || price, src: "AV" as const };
+      }
+    } catch {}
+  }
+  return null;
+}
+
+export { api as dualApi };
