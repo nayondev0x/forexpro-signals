@@ -1,0 +1,671 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useRef, useState, useCallback } from "react";
+     4→import {
+     5→  TrendingUp,
+     6→  TrendingDown,
+     7→  Activity,
+     8→  Target,
+     9→  ShieldAlert,
+    10→  Clock,
+    11→  Zap,
+    12→  BarChart3,
+    13→  Trophy,
+    14→  ArrowUpRight,
+    15→  ArrowDownRight,
+    16→  Signal,
+    17→  Wifi,
+    18→  WifiOff,
+    19→  ChevronDown,
+    20→  ChevronUp,
+    21→  RefreshCw,
+    22→  Brain,
+    23→  Gauge,
+    24→} from "lucide-react";
+    25→import { Badge } from "@/components/ui/badge";
+    26→import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+    27→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    28→import { ScrollArea } from "@/components/ui/scroll-area";
+    29→import { Separator } from "@/components/ui/separator";
+    30→import {
+    31→  Table,
+    32→  TableBody,
+    33→  TableCell,
+    34→  TableHead,
+    35→  TableHeader,
+    36→  TableRow,
+    37→} from "@/components/ui/table";
+    38→import {
+    39→  Tooltip,
+    40→  TooltipContent,
+    41→  TooltipProvider,
+    42→  TooltipTrigger,
+    43→} from "@/components/ui/tooltip";
+    44→import { Progress } from "@/components/ui/progress";
+    45→
+    46→/* ─Types ─*/
+    47→interface ForexSignal {
+    48→  id: string;
+    49→  pair: string;
+    50→  type: "BUY" | "SELL";
+    51→  entry: number;
+    52→  tp: number;
+    53→  sl: number;
+    54→  timestamp: string;
+    55→  status: "ACTIVE" | "TP_HIT" | "SL_HIT" | "CLOSED";
+    56→  pips?: number;
+    57→  confidence?: number;
+    58→  reasoning?: string[];
+    59→  indicators?: Record<string, string | number>;
+    60→  priceData?: { bid: number; ask: number; high: number; low: number; open: number };
+    61→  source?: string;
+    62→}
+    63→
+    64→interface PriceData {
+    65→  pair: string;
+    66→  bid: number;
+    67→  ask: number;
+    68→  spread: number;
+    69→  change: number;
+    70→  changePercent: number;
+    71→}
+    72→
+    73→/* ─Helpers ─*/
+    74→function formatTime(iso: string) {
+    75→  const d = new Date(iso);
+    76→  return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    77→}
+    78→
+    79→function formatPrice(price: number, pair: string) {
+    80→  if (pair.includes("XAU")) return price.toFixed(2);
+    81→  if (pair.includes("XAG")) return price.toFixed(2);
+    82→  if (pair.includes("JPY")) return price.toFixed(2);
+    83→  return price.toFixed(4);
+    84→}
+    85→
+    86→function getDecimals(pair: string) {
+    87→  if (pair.includes("XAU") || pair.includes("XAG") || pair.includes("JPY")) return 2;
+    88→  return 4;
+    89→}
+    90→
+    91→/* ─Pulse Dot ─*/
+    92→function PulseDot({ color }: { color: string }) {
+    93→  return (
+    94→    <span className="relative flex h-2.5 w-2.5">
+    95→      <span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-75 ${color}`} />
+    96→      <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${color}`} />
+    97→    </span>
+    98→  );
+    99→}
+   100→
+   101→/* ─Confidence Bar ─*/
+   102→function ConfidenceBar({ confidence }: { confidence: number }) {
+   103→  const color = confidence >= 80 ? "bg-emerald-500" : confidence >= 60 ? "bg-amber-500" : "bg-rose-500";
+   104→  const textColor = confidence >= 80 ? "text-emerald-400" : confidence >= 60 ? "text-amber-400" : "text-rose-400";
+   105→  return (
+   106→    <div className="flex items-center gap-2">
+   107→      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-background/60">
+   108→        <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${confidence}%` }} />
+   109→      </div>
+   110→      <span className={`text-[10px] font-bold ${textColor}`}>{confidence}%</span>
+   111→    </div>
+   112→  );
+   113→}
+   114→
+   115→/* ─Price Ticker Bar ─*/
+   116→function PriceTickerBar({ prices }: { prices: PriceData[] }) {
+   117→  return (
+   118→    <div className="w-full overflow-hidden border-b border-border/40 bg-card/60 backdrop-blur">
+   119→      <div className="flex animate-scroll items-center gap-6 px-4 py-2">
+   120→        {[...prices, ...prices, ...prices, ...prices].map((p, i) => (
+   121→          <div key={`${p.pair}-${i}`} className="flex shrink-0 items-center gap-2 text-xs">
+   122→            <span className="font-semibold text-foreground/90">{p.pair}</span>
+   123→            <span className="font-mono text-foreground/80">{formatPrice(p.bid, p.pair)}</span>
+   124→            <span className={p.changePercent >= 0 ? "text-emerald-400" : "text-rose-400"}>
+   125→              {p.changePercent >= 0 ? "+" : ""}{p.changePercent.toFixed(3)}%
+   126→            </span>
+   127→          </div>
+   128→        ))}
+   129→      </div>
+   130→    </div>
+   131→  );
+   132→}
+   133→
+   134→/* ─Stats Cards ─*/
+   135→function StatsCards({ signals, dataSource }: { signals: ForexSignal[]; dataSource: string }) {
+   136→  const totalSignals = signals.length;
+   137→  const activeSignals = signals.filter((s) => s.status === "ACTIVE").length;
+   138→  const tpHits = signals.filter((s) => s.status === "TP_HIT").length;
+   139→  const slHits = signals.filter((s) => s.status === "SL_HIT").length;
+   140→  const completed = tpHits + slHits;
+   141→  const winRate = completed > 0 ? ((tpHits / completed) * 100).toFixed(1) : "—";
+   142→  const totalPips = signals.reduce((acc, s) => acc + (s.pips || 0), 0);
+   143→  const realSignals = signals.filter((s) => s.source === "RapidAPI").length;
+   144→  const avgConfidence = signals.length > 0
+   145→    ? Math.round(signals.reduce((acc, s) => acc + (s.confidence || 0), 0) / signals.length)
+   146→    : 0;
+   147→
+   148→  const stats = [
+   149→    { label: "Total Signals", value: totalSignals, icon: Signal, color: "text-sky-400" },
+   150→    { label: "Active", value: activeSignals, icon: Activity, color: "text-amber-400" },
+   151→    { label: "Win Rate", value: `${winRate}%`, icon: Trophy, color: "text-emerald-400" },
+   152→    { label: "TP / SL", value: `${tpHits} / ${slHits}`, icon: Target, color: "text-emerald-400" },
+   153→    { label: "Total Pips", value: `${totalPips > 0 ? "+" : ""}${totalPips.toFixed(1)}`, icon: BarChart3, color: totalPips >= 0 ? "text-emerald-400" : "text-rose-400" },
+   154→    { label: "Avg Confidence", value: `${avgConfidence}%`, icon: Brain, color: "text-violet-400" },
+   155→  ];
+   156→
+   157→  return (
+   158→    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+   159→      {stats.map((stat) => (
+   160→        <Card key={stat.label} className="border-border/30 bg-card/80 backdrop-blur">
+   161→          <CardContent className="flex flex-col items-center gap-1 p-3 text-center">
+   162→            <stat.icon className={`h-4 w-4 ${stat.color}`} />
+   163→            <span className="text-xl font-bold text-foreground">{stat.value}</span>
+   164→            <span className="text-[10px] text-muted-foreground">{stat.label}</span>
+   165→          </CardContent>
+   166→        </Card>
+   167→      ))}
+   168→      {/* Data source indicator */}
+   169→      <Card className={`col-span-2 sm:col-span-3 lg:col-span-6 border ${dataSource === "live" ? "border-emerald-500/30 bg-emerald-500/5" : "border-amber-500/30 bg-amber-500/5"}`}>
+   170→        <CardContent className="flex items-center justify-center gap-2 p-2.5">
+   171→          {dataSource === "live" ? (
+   172→            <>
+   173→              <Wifi className="h-4 w-4 text-emerald-400" />
+   174→              <span className="text-xs font-medium text-emerald-400">LIVE DATA — RapidAPI Connected</span>
+   175→              <span className="text-[10px] text-muted-foreground">(Twelve Data + Alpha Vantage)</span>
+   176→              <Badge variant="outline" className="ml-2 border-emerald-500/30 text-[10px] text-emerald-400">
+   177→                {realSignals} real signals
+   178→              </Badge>
+   179→            </>
+   180→          ) : (
+   181→            <>
+   182→              <WifiOff className="h-4 w-4 text-amber-400" />
+   183→              <span className="text-xs font-medium text-amber-400">FALLBACK MODE — Using simulated data</span>
+   184→              <span className="text-[10px] text-muted-foreground">(API reconnecting...)</span>
+   185→            </>
+   186→          )}
+   187→        </CardContent>
+   188→      </Card>
+   189→    </div>
+   190→  );
+   191→}
+   192→
+   193→/* ─Indicators Panel ─*/
+   194→function IndicatorsPanel({ indicators }: { indicators: Record<string, string | number> | undefined }) {
+   195→  const [open, setOpen] = useState(false);
+   196→  if (!indicators || Object.keys(indicators).length === 0) return null;
+   197→
+   198→  const entries = Object.entries(indicators);
+   199→  const displayed = open ? entries : entries.slice(0, 4);
+   200→
+   201→  return (
+   202→    <div className="mt-3 border-t border-border/20 pt-2">
+   203→      <button
+   204→        onClick={() => setOpen(!open)}
+   205→        className="flex w-full items-center justify-between text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground/70 transition-colors"
+   206→      >
+   207→        <span className="flex items-center gap-1">
+   208→          <Gauge className="h-3 w-3" />
+   209→          Technical Indicators
+   210→        </span>
+   211→        {open ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+   212→      </button>
+   213→      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+   214→        {displayed.map(([key, value]) => (
+   215→          <div key={key} className="rounded-md bg-background/60 px-2 py-1">
+   216→            <span className="text-[9px] text-muted-foreground">{key}</span>
+   217→            <p className="font-mono text-[11px] font-bold text-foreground/90">{String(value)}</p>
+   218→          </div>
+   219→        ))}
+   220→      </div>
+   221→    </div>
+   222→  );
+   223→}
+   224→
+   225→/* ─Signal Card ─*/
+   226→function SignalCard({ signal, isNew = false }: { signal: ForexSignal; isNew?: boolean }) {
+   227→  const isBuy = signal.type === "BUY";
+   228→  const isActive = signal.status === "ACTIVE";
+   229→  const isTP = signal.status === "TP_HIT";
+   230→  const isSL = signal.status === "SL_HIT";
+   231→  const isReal = signal.source === "RapidAPI";
+   232→
+   233→  return (
+   234→    <Card
+   235→      className={`relative overflow-hidden border transition-all duration-500 ${
+   236→        isNew
+   237→          ? "border-amber-400/60 shadow-lg shadow-amber-400/10"
+   238→          : isActive
+   239→          ? "border-border/40 bg-card/80"
+   240→          : "border-border/20 bg-card/40 opacity-70"
+   241→      } backdrop-blur`}
+   242→    >
+   243→      {isNew && (
+   244→        <div className="absolute top-0 right-0 flex items-center gap-1 rounded-bl-lg bg-amber-500 px-2 py-0.5 text-xs font-bold text-black">
+   245→          <Zap className="h-3 w-3" /> NEW
+   246→        </div>
+   247→      )}
+   248→
+   249→      <CardContent className="p-4">
+   250→        {/* Header */}
+   251→        <div className="mb-3 flex items-center justify-between">
+   252→          <div className="flex items-center gap-2">
+   253→            {isActive ? (
+   254→              isBuy ? (
+   255→                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/20">
+   256→                  <TrendingUp className="h-5 w-5 text-emerald-400" />
+   257→                </div>
+   258→              ) : (
+   259→                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-500/20">
+   260→                  <TrendingDown className="h-5 w-5 text-rose-400" />
+   261→                </div>
+   262→              )
+   263→            ) : (
+   264→              <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${isTP ? "bg-emerald-500/20" : "bg-rose-500/20"}`}>
+   265→                {isTP ? <Target className="h-5 w-5 text-emerald-400" /> : <ShieldAlert className="h-5 w-5 text-rose-400" />}
+   266→              </div>
+   267→            )}
+   268→            <div>
+   269→              <div className="flex items-center gap-1.5">
+   270→                <h3 className="text-sm font-bold text-foreground">{signal.pair}</h3>
+   271→                {isReal && (
+   272→                  <TooltipProvider>
+   273→                    <Tooltip>
+   274→                      <TooltipTrigger>
+   275→                        <Wifi className="h-3 w-3 text-emerald-400" />
+   276→                      </TooltipTrigger>
+   277→                      <TooltipContent className="text-xs">Real API Data</TooltipContent>
+   278→                    </Tooltip>
+   279→                  </TooltipProvider>
+   280→                )}
+   281→              </div>
+   282→              <p className="text-[10px] text-muted-foreground">{signal.id}</p>
+   283→            </div>
+   284→          </div>
+   285→          <div className="flex flex-col items-end gap-1">
+   286→            <Badge
+   287→              className={`text-xs font-bold ${
+   288→                isBuy
+   289→                  ? "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30"
+   290→                  : "bg-rose-500/20 text-rose-400 hover:bg-rose-500/30"
+   291→              }`}
+   292→              variant="outline"
+   293→            >
+   294→              {isBuy ? (
+   295→                <span className="flex items-center gap-1"><ArrowUpRight className="h-3 w-3" /> BUY</span>
+   296→              ) : (
+   297→                <span className="flex items-center gap-1"><ArrowDownRight className="h-3 w-3" /> SELL</span>
+   298→              )}
+   299→            </Badge>
+   300→            {signal.confidence && <ConfidenceBar confidence={signal.confidence} />}
+   301→          </div>
+   302→        </div>
+   303→
+   304→        {/* Prices */}
+   305→        <div className="mb-2 grid grid-cols-3 gap-2">
+   306→          <div className="rounded-lg bg-background/60 p-2">
+   307→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Entry</p>
+   308→            <p className="font-mono text-sm font-bold text-foreground">{formatPrice(signal.entry, signal.pair)}</p>
+   309→          </div>
+   310→          <div className="rounded-lg bg-emerald-500/10 p-2">
+   311→            <p className="text-[10px] uppercase tracking-wider text-emerald-400/70">Take Profit</p>
+   312→            <p className="font-mono text-sm font-bold text-emerald-400">{formatPrice(signal.tp, signal.pair)}</p>
+   313→          </div>
+   314→          <div className="rounded-lg bg-rose-500/10 p-2">
+   315→            <p className="text-[10px] uppercase tracking-wider text-rose-400/70">Stop Loss</p>
+   316→            <p className="font-mono text-sm font-bold text-rose-400">{formatPrice(signal.sl, signal.pair)}</p>
+   317→          </div>
+   318→        </div>
+   319→
+   320→        {/* Reasoning */}
+   321→        {signal.reasoning && signal.reasoning.length > 0 && (
+   322→          <div className="mb-2 rounded-lg bg-background/40 p-2">
+   323→            <p className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">Analysis</p>
+   324→            <div className="flex flex-wrap gap-1">
+   325→              {signal.reasoning.slice(0, 3).map((r, i) => (
+   326→                <span key={i} className="rounded-full bg-background/80 px-2 py-0.5 text-[10px] text-foreground/70">
+   327→                  {r}
+   328→                </span>
+   329→              ))}
+   330→            </div>
+   331→          </div>
+   332→        )}
+   333→
+   334→        {/* Indicators */}
+   335→        <IndicatorsPanel indicators={signal.indicators} />
+   336→
+   337→        {/* Footer */}
+   338→        <div className="mt-3 flex items-center justify-between border-t border-border/20 pt-2">
+   339→          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+   340→            <Clock className="h-3 w-3" />
+   341→            {formatTime(signal.timestamp)}
+   342→          </div>
+   343→          {!isActive && signal.pips !== undefined ? (
+   344→            <Badge
+   345→              variant="outline"
+   346→              className={`text-xs font-bold ${signal.pips > 0 ? "border-emerald-500/30 text-emerald-400" : "border-rose-500/30 text-rose-400"}`}
+   347→            >
+   348→              {signal.pips > 0 ? "+" : ""}{signal.pips} pips
+   349→            </Badge>
+   350→          ) : isActive ? (
+   351→            <div className="flex items-center gap-1.5">
+   352→              <PulseDot color="bg-emerald-400" />
+   353→              <span className="text-xs font-medium text-emerald-400">LIVE</span>
+   354→            </div>
+   355→          ) : null}
+   356→        </div>
+   357→      </CardContent>
+   358→    </Card>
+   359→  );
+   360→}
+   361→
+   362→/* ─Main Page ─*/
+   363→export default function Home() {
+   364→  const [signals, setSignals] = useState<ForexSignal[]>([]);
+   365→  const [prices, setPrices] = useState<PriceData[]>([]);
+   366→  const [newSignalId, setNewSignalId] = useState<string | null>(null);
+   367→  const [connected, setConnected] = useState(true);
+   368→  const [dataSource, setDataSource] = useState<string>("connecting");
+   369→  const [refreshing, setRefreshing] = useState(false);
+   370→  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+   371→
+   372→  // Poll prices every 30s
+   373→  const fetchPrices = useCallback(async () => {
+   374→    try {
+   375→      const r = await fetch("/api/forex/prices");
+   376→      const data = await r.json();
+   377→      if (data.prices) { setPrices(data.prices); setDataSource(data.liveCount >= 5 ? "live" : "partial"); }
+   378→    } catch {}
+   379→  }, []);
+   380→
+   381→  // Poll signals every 20s
+   382→  const fetchSignals = useCallback(async () => {
+   383→    try {
+   384→      const r = await fetch("/api/forex/signal");
+   385→      const data = await r.json();
+   386→      if (data.signals && data.signals.length > 0) {
+   387→        setSignals((prev) => {
+   388→          const existingIds = new Set(prev.map((s) => s.id));
+   389→          const newOnes = data.signals.filter((s: ForexSignal) => !existingIds.has(s.id));
+   390→          if (newOnes.length > 0) {
+   391→            setNewSignalId(newOnes[0].id);
+   392→            setTimeout(() => setNewSignalId(null), 5000);
+   393→          }
+   394→          return [...newOnes, ...prev].slice(0, 20);
+   395→        });
+   396→      }
+   397→    } catch {}
+   398→  }, []);
+   399→
+   400→  /* Manual refresh */
+   401→  const refreshSignals = async () => {
+   402→    setRefreshing(true);
+   403→    await fetchSignals();
+   404→    await fetchPrices();
+   405→    setTimeout(() => setRefreshing(false), 500);
+   406→  };
+   407→
+   408→  useEffect(() => {
+   409→    const load = async () => { await fetchPrices(); await fetchSignals(); };
+   410→    load();
+   411→    const pi = setInterval(fetchPrices, 30000);
+   412→    const si = setInterval(fetchSignals, 20000);
+   413→    pollingRef.current = si;
+   414→    return () => { clearInterval(pi); clearInterval(si); };
+   415→  }, [fetchPrices, fetchSignals]);
+   416→
+   417→  const activeSignals = signals.filter((s) => s.status === "ACTIVE");
+   418→  const completedSignals = signals.filter((s) => s.status !== "ACTIVE");
+   419→
+   420→  return (
+   421→    <div className="flex min-h-screen flex-col bg-background">
+   422→      {/* Header */}
+   423→      <header className="sticky top-0 z-50 border-b border-border/40 bg-background/80 backdrop-blur-lg">
+   424→        <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
+   425→          <div className="flex items-center gap-3">
+   426→            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600">
+   427→              <Activity className="h-5 w-5 text-white" />
+   428→            </div>
+   429→            <div>
+   430→              <h1 className="text-lg font-bold tracking-tight text-foreground">
+   431→                ForexPro<span className="text-emerald-400">Signals</span>
+   432→              </h1>
+   433→            </div>
+   434→          </div>
+   435→          <div className="flex items-center gap-3">
+   436→            <button
+   437→              onClick={refreshSignals}
+   438→              disabled={refreshing}
+   439→              className="flex items-center gap-1.5 rounded-lg border border-border/40 bg-card/80 px-3 py-1.5 text-xs font-medium text-foreground/80 transition-colors hover:bg-card hover:text-foreground disabled:opacity-50"
+   440→            >
+   441→              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+   442→              Analyze
+   443→            </button>
+   444→            <div className="hidden items-center gap-2 rounded-full border border-border/40 bg-card/80 px-3 py-1.5 sm:flex">
+   445→              <span className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-400" : "bg-rose-400"}`} />
+   446→              <span className="text-xs text-muted-foreground">
+   447→                {connected ? (dataSource === "live" ? "Live" : "Standby") : "Connecting..."}
+   448→              </span>
+   449→            </div>
+   450→          </div>
+   451→        </div>
+   452→      </header>
+   453→
+   454→      {/* Price Ticker */}
+   455→      {prices.length > 0 && <PriceTickerBar prices={prices} />}
+   456→
+   457→      {/* Main Content */}
+   458→      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6">
+   459→        <section className="mb-6">
+   460→          <StatsCards signals={signals} dataSource={dataSource} />
+   461→        </section>
+   462→
+   463→        <Separator className="mb-6 bg-border/30" />
+   464→
+   465→        <Tabs defaultValue="active" className="w-full">
+   466→          <TabsList className="mb-4 bg-card/80 border border-border/30">
+   467→            <TabsTrigger value="active" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400">
+   468→              <span className="flex items-center gap-1.5">
+   469→                <Activity className="h-4 w-4" />
+   470→                Active Signals
+   471→                {activeSignals.length > 0 && (
+   472→                  <span className="ml-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-500/20 px-1.5 text-[10px] font-bold text-emerald-400">
+   473→                    {activeSignals.length}
+   474→                  </span>
+   475→                )}
+   476→              </span>
+   477→            </TabsTrigger>
+   478→            <TabsTrigger value="history" className="data-[state=active]:bg-sky-500/20 data-[state=active]:text-sky-400">
+   479→              <span className="flex items-center gap-1.5">
+   480→                <BarChart3 className="h-4 w-4" />
+   481→                History
+   482→                {completedSignals.length > 0 && (
+   483→                  <span className="ml-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-sky-500/20 px-1.5 text-[10px] font-bold text-sky-400">
+   484→                    {completedSignals.length}
+   485→                  </span>
+   486→                )}
+   487→              </span>
+   488→            </TabsTrigger>
+   489→            <TabsTrigger value="market" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400">
+   490→              <span className="flex items-center gap-1.5">
+   491→                <TrendingUp className="h-4 w-4" />
+   492→                Market Watch
+   493→              </span>
+   494→            </TabsTrigger>
+   495→          </TabsList>
+   496→
+   497→          {/* Active Signals */}
+   498→          <TabsContent value="active">
+   499→            {activeSignals.length === 0 ? (
+   500→              <Card className="border-border/20 bg-card/40">
+   501→                <CardContent className="flex flex-col items-center justify-center py-16">
+   502→                  <Activity className="mb-4 h-12 w-12 text-muted-foreground/30" />
+   503→                  <p className="text-lg font-medium text-muted-foreground">Waiting for signals...</p>
+   504→                  <p className="mb-4 text-sm text-muted-foreground/60">
+   505→                    Technical analysis running on live data (RSI, MACD, EMA, BBands, ATR)
+   506→                  </p>
+   507→                  <button
+   508→                    onClick={refreshSignals}
+   509→                    disabled={refreshing}
+   510→                    className="flex items-center gap-2 rounded-lg bg-emerald-500/20 px-4 py-2 text-sm font-medium text-emerald-400 transition-colors hover:bg-emerald-500/30"
+   511→                  >
+   512→                    <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+   513→                    Run Analysis Now
+   514→                  </button>
+   515→                </CardContent>
+   516→              </Card>
+   517→            ) : (
+   518→              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+   519→                {activeSignals.map((signal) => (
+   520→                  <SignalCard key={signal.id} signal={signal} isNew={signal.id === newSignalId} />
+   521→                ))}
+   522→              </div>
+   523→            )}
+   524→          </TabsContent>
+   525→
+   526→          {/* Signal History */}
+   527→          <TabsContent value="history">
+   528→            {completedSignals.length === 0 ? (
+   529→              <Card className="border-border/20 bg-card/40">
+   530→                <CardContent className="flex flex-col items-center justify-center py-16">
+   531→                  <BarChart3 className="mb-4 h-12 w-12 text-muted-foreground/30" />
+   532→                  <p className="text-lg font-medium text-muted-foreground">No signal history yet</p>
+   533→                  <p className="text-sm text-muted-foreground/60">Completed signals (TP/SL hit) will appear here</p>
+   534→                </CardContent>
+   535→              </Card>
+   536→            ) : (
+   537→              <Card className="border-border/30 bg-card/80 backdrop-blur">
+   538→                <CardHeader className="pb-2">
+   539→                  <CardTitle className="text-sm font-medium text-muted-foreground">
+   540→                    Signal Performance History
+   541→                  </CardTitle>
+   542→                </CardHeader>
+   543→                <CardContent className="p-0">
+   544→                  <ScrollArea className="max-h-96">
+   545→                    <Table>
+   546→                      <TableHeader>
+   547→                        <TableRow className="border-border/30 hover:bg-transparent">
+   548→                          <TableHead className="text-xs">ID</TableHead>
+   549→                          <TableHead className="text-xs">Pair</TableHead>
+   550→                          <TableHead className="text-xs">Type</TableHead>
+   551→                          <TableHead className="text-xs text-right">Entry</TableHead>
+   552→                          <TableHead className="text-xs text-right">TP</TableHead>
+   553→                          <TableHead className="text-xs text-right">SL</TableHead>
+   554→                          <TableHead className="text-xs">Confidence</TableHead>
+   555→                          <TableHead className="text-xs">Status</TableHead>
+   556→                          <TableHead className="text-xs text-right">Pips</TableHead>
+   557→                          <TableHead className="text-xs">Time</TableHead>
+   558→                          <TableHead className="text-xs">Source</TableHead>
+   559→                        </TableRow>
+   560→                      </TableHeader>
+   561→                      <TableBody>
+   562→                        {completedSignals.map((signal) => (
+   563→                          <TableRow key={signal.id} className="border-border/20">
+   564→                            <TableCell className="font-mono text-[10px] text-muted-foreground">{signal.id.substring(0, 12)}</TableCell>
+   565→                            <TableCell className="text-xs font-bold text-foreground">{signal.pair}</TableCell>
+   566→                            <TableCell>
+   567→                              <Badge variant="outline" className={`text-[10px] font-bold ${signal.type === "BUY" ? "border-emerald-500/30 text-emerald-400" : "border-rose-500/30 text-rose-400"}`}>
+   568→                                {signal.type}
+   569→                              </Badge>
+   570→                            </TableCell>
+   571→                            <TableCell className="text-right font-mono text-xs">{formatPrice(signal.entry, signal.pair)}</TableCell>
+   572→                            <TableCell className="text-right font-mono text-xs text-emerald-400">{formatPrice(signal.tp, signal.pair)}</TableCell>
+   573→                            <TableCell className="text-right font-mono text-xs text-rose-400">{formatPrice(signal.sl, signal.pair)}</TableCell>
+   574→                            <TableCell className="text-xs">
+   575→                              {signal.confidence ? <ConfidenceBar confidence={signal.confidence} /> : "—"}
+   576→                            </TableCell>
+   577→                            <TableCell>
+   578→                              <Badge variant="outline" className={`text-[10px] font-bold ${signal.status === "TP_HIT" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400" : "border-rose-500/30 bg-rose-500/10 text-rose-400"}`}>
+   579→                                {signal.status === "TP_HIT" ? "TP HIT" : "SL HIT"}
+   580→                              </Badge>
+   581→                            </TableCell>
+   582→                            <TableCell className={`text-right font-mono text-xs font-bold ${(signal.pips || 0) > 0 ? "text-emerald-400" : "text-rose-400"}`}>
+   583→                              {(signal.pips || 0) > 0 ? "+" : ""}{signal.pips || 0} pips
+   584→                            </TableCell>
+   585→                            <TableCell className="text-[10px] text-muted-foreground">{formatTime(signal.timestamp)}</TableCell>
+   586→                            <TableCell>
+   587→                              {signal.source === "RapidAPI" ? (
+   588→                                <Badge variant="outline" className="border-emerald-500/30 text-[9px] text-emerald-400">LIVE</Badge>
+   589→                              ) : (
+   590→                                <Badge variant="outline" className="border-amber-500/30 text-[9px] text-amber-400">SIM</Badge>
+   591→                              )}
+   592→                            </TableCell>
+   593→                          </TableRow>
+   594→                        ))}
+   595→                      </TableBody>
+   596→                    </Table>
+   597→                  </ScrollArea>
+   598→                </CardContent>
+   599→              </Card>
+   600→            )}
+   601→          </TabsContent>
+   602→
+   603→          {/* Market Watch */}
+   604→          <TabsContent value="market">
+   605→            {prices.length === 0 ? (
+   606→              <Card className="border-border/20 bg-card/40">
+   607→                <CardContent className="flex flex-col items-center justify-center py-16">
+   608→                  <TrendingUp className="mb-4 h-12 w-12 text-muted-foreground/30" />
+   609→                  <p className="text-lg font-medium text-muted-foreground">Loading market data...</p>
+   610→                </CardContent>
+   611→              </Card>
+   612→            ) : (
+   613→              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+   614→                {prices.map((p) => (
+   615→                  <Card key={p.pair} className="border-border/30 bg-card/80 backdrop-blur transition-colors hover:border-border/60">
+   616→                    <CardContent className="p-4">
+   617→                      <div className="mb-2 flex items-center justify-between">
+   618→                        <h3 className="text-sm font-bold text-foreground">{p.pair}</h3>
+   619→                        <span className={`text-xs font-bold ${p.changePercent >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+   620→                          {p.changePercent >= 0 ? "+" : ""}{p.changePercent.toFixed(3)}%
+   621→                        </span>
+   622→                      </div>
+   623→                      <div className="grid grid-cols-2 gap-3">
+   624→                        <div>
+   625→                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Bid</p>
+   626→                          <p className="font-mono text-sm font-bold text-foreground">{formatPrice(p.bid, p.pair)}</p>
+   627→                        </div>
+   628→                        <div>
+   629→                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Ask</p>
+   630→                          <p className="font-mono text-sm font-bold text-foreground">{formatPrice(p.ask, p.pair)}</p>
+   631→                        </div>
+   632→                      </div>
+   633→                      <div className="mt-2 flex items-center justify-between border-t border-border/20 pt-2">
+   634→                        <span className="text-[10px] text-muted-foreground">Spread: {p.spread}</span>
+   635→                        {p.changePercent >= 0 ? (
+   636→                          <ArrowUpRight className="h-4 w-4 text-emerald-400" />
+   637→                        ) : (
+   638→                          <ArrowDownRight className="h-4 w-4 text-rose-400" />
+   639→                        )}
+   640→                      </div>
+   641→                    </CardContent>
+   642→                  </Card>
+   643→                ))}
+   644→              </div>
+   645→            )}
+   646→          </TabsContent>
+   647→        </Tabs>
+   648→      </main>
+   649→
+   650→      {/* Footer */}
+   651→      <footer className="mt-auto border-t border-border/30 bg-card/40 backdrop-blur">
+   652→        <div className="mx-auto flex max-w-7xl flex-col items-center gap-2 px-4 py-6 sm:flex-row sm:justify-between">
+   653→          <div className="flex items-center gap-2">
+   654→            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-gradient-to-br from-emerald-500 to-emerald-600">
+   655→              <Activity className="h-4 w-4 text-white" />
+   656→            </div>
+   657→            <span className="text-sm font-semibold text-foreground">
+   658→              ForexPro<span className="text-emerald-400">Signals</span>
+   659→            </span>
+   660→          </div>
+   661→          <p className="text-xs text-muted-foreground">
+   662→            Developed with <span className="font-semibold text-emerald-400">nayondev</span> &bull; Real-time Forex Signals &bull; Powered by RapidAPI
+   663→          </p>
+   664→          <p className="text-[10px] text-muted-foreground/50">
+   665→            &copy; {new Date().getFullYear()} All rights reserved
+   666→          </p>
+   667→        </div>
+   668→      </footer>
+   669→    </div>
+   670→  );
+   671→}
