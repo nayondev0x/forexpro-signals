@@ -151,6 +151,11 @@ export async function getIndicator(pair: string, indicator: string, params: Reco
   try { return await api.fetchTD(`/${indicator}`, { symbol: pairToSymbol(pair), interval: "1min", outputsize: "30", ...params }); } catch { return null; }
 }
 
+/* ─── Time Series (TD) for charts ─── */
+export async function getTimeSeries(pair: string, interval = "5min", outputsize = "100") {
+  try { return await api.fetchTD("/time_series", { symbol: pairToSymbol(pair), interval, outputsize }); } catch { return null; }
+}
+
 /* ─── Multiple indicators (TD) ─── */
 export async function getPairIndicators(pair: string) {
   const [rsi, macd, ema, sma, bbands, atr] = await Promise.allSettled([
