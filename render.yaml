@@ -40,3 +40,7 @@ services:
         sync: false
       - key: TRADEDECONOMICS_API_HOST
         value: economic-calendar-api-tradingeconomics.p.rapidapi.com
+      - key: SELFTRADE_API_KEY
+        sync: false
+      - key: SELFTRADE_API_HOST
+        value: selftrade.p.rapidapi.com

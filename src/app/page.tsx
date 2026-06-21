@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { TrendingUp, TrendingDown, Activity, Target, ShieldAlert, Clock, Zap, BarChart3, Trophy, ArrowUpRight, ArrowDownRight, Signal, Wifi, WifiOff, RefreshCw, Brain, Gauge, Star, ChevronDown, ChevronUp, X, Newspaper, LineChart } from "lucide-react";
+import { TrendingUp, TrendingDown, Activity, Target, ShieldAlert, Clock, Zap, BarChart3, Trophy, ArrowUpRight, ArrowDownRight, Signal, Wifi, WifiOff, RefreshCw, Brain, Gauge, Star, ChevronDown, ChevronUp, X, Newspaper, LineChart, Bitcoin } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -21,6 +21,7 @@ import { ControlsBar } from "@/components/forex/controls-bar";
 import { playSignalSound, sendBrowserNotification } from "@/components/forex/notification-sound";
 import { MarketNews } from "@/components/forex/market-news";
 import { StockPrices } from "@/components/stocks/stock-prices";
+import { CryptoSignals } from "@/components/crypto/crypto-signals";
 
 /* ─Types ─*/
 interface ForexSignal {
@@ -345,6 +346,9 @@ export default function Home() {
             <TabsTrigger value="stocks" className="data-[state=active]:bg-orange-500/20 data-[state=active]:text-orange-500 text-xs">
               <span className="flex items-center gap-1.5"><LineChart className="h-4 w-4" />Stocks</span>
             </TabsTrigger>
+            <TabsTrigger value="crypto" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-500 text-xs">
+              <span className="flex items-center gap-1.5"><Bitcoin className="h-4 w-4" />Crypto</span>
+            </TabsTrigger>
           </TabsList>
 
           {/* Active Signals */}
@@ -447,6 +451,11 @@ export default function Home() {
           {/* Stock Prices */}
           <TabsContent value="stocks">
             <StockPrices />
+          </TabsContent>
+
+          {/* Crypto Signals */}
+          <TabsContent value="crypto">
+            <CryptoSignals />
           </TabsContent>
         </Tabs>
       </main>

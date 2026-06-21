@@ -81,3 +81,30 @@ Stage Summary:
 - 227 events from 8 currencies (USD=50, EUR=30, GBP=32, JPY=42, AUD=37, CAD=18, CHF=9, NZD=9)
 - Auto failover: TE fails → TC takes over automatically
 - Client-side + server-side filtering for instant response
+
+---
+Task ID: 13
+Agent: Main Agent
+Task: Add SelfTrade Crypto API (Signals, Funding Rates, Fear & Greed, Pairs)
+
+Work Log:
+- Created 4 API routes under /api/crypto/:
+  - /signal — ?pair=X for single, ?action=all for all 21 pairs (batched 3 at a time)
+  - /pairs — available trading pairs list (5min cache)
+  - /funding-rates — top 86 funding rates (1min cache)
+  - /fear-greed — market sentiment value 0-100 (1min cache)
+- Created `crypto-signals.tsx` component:
+  - Fear & Greed circular gauge with gradient color + progress bar
+  - Top 8 Funding Rates list with direction indicators
+  - 21 Crypto Signal cards in 4-column grid
+  - Action badges (BUY/SELL/HOLD) with color coding
+  - Market regime indicators (LOW_VOLATILITY, TRENDING_UP, etc.)
+  - Stats pills: Buy/Sell/Hold counts
+- Added "Crypto" tab to main page (amber theme, Bitcoin icon)
+- Added SELFTRADE_API_KEY/HOST to .env.example and render.yaml
+
+Stage Summary:
+- 21 crypto pairs: BTC, ETH, BNB, XRP, SOL, DOGE, ADA, AVAX, LINK, LTC, TRX, DOT, SUI, NEAR, APT, INJ, ARB, OP, RENDER, PEPE, SHIB
+- Fear & Greed: 23 (Extreme Fear)
+- 86 funding rates with mark price + direction
+- Build passing, 4 new routes registered
