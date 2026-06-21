@@ -31,3 +31,26 @@ Stage Summary:
 - Feature 9 (Auto-refresh Toggle): Switch in controls bar, persisted in Zustand
 - Feature 10 (Pair-wise Filter): Select dropdown with ALL/Favorites/individual pairs
 - Bonus: Market News tab with live API integration
+
+---
+Task ID: 11
+Agent: Main Agent
+Task: Add Stock Prices feature (stock-prices2 RapidAPI) with 5 time ranges
+
+Work Log:
+- Created `/api/stocks/prices/route.ts` — stock-prices2 API integration with 2min cache, batch fetching (3 at a time)
+- API supports: ?ticker=X&range=1d/5d/1mo/ytd/max, ?action=popular, ?tickers=A,B,C
+- Fixed response normalization: API returns object with datetime keys + capitalized field names (Close, Open, High, Low, Volume)
+- Created `src/components/stocks/stock-prices.tsx` — full stock tab UI:
+  - Left panel: 8 popular stocks with sparkline SVGs, search bar for custom tickers
+  - Right panel: Canvas-drawn OHLC chart with area fill, price stats (High/Low/Open/Volume)
+  - Range selector: 1D, 5D, 1M, YTD, All Time
+  - Price data table (last 50 entries, color-coded)
+- Added "Stocks" tab to main page (orange theme, LineChart icon)
+- Updated .env.example and render.yaml with STOCK_PRICES_API_KEY/HOST
+- Added STOCK_PRICES_API_KEY and STOCK_PRICES_API_HOST env vars
+
+Stage Summary:
+- All 8 popular stocks fetching: AAPL, GOOGL, MSFT, AMZN, TSLA, NVDA, META, NFLX
+- All 5 ranges working: 1d(1 candle), 5d(5), 1mo(22), ytd(116), max(168)
+- Build passing, all routes registered

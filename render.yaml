@@ -32,3 +32,7 @@ services:
         sync: false
       - key: BREAKING_NEWS_API_HOST
         value: myallies-breaking-news-v1.p.rapidapi.com
+      - key: STOCK_PRICES_API_KEY
+        sync: false
+      - key: STOCK_PRICES_API_HOST
+        value: stock-prices2.p.rapidapi.com
