@@ -54,3 +54,30 @@ Stage Summary:
 - All 8 popular stocks fetching: AAPL, GOOGL, MSFT, AMZN, TSLA, NVDA, META, NFLX
 - All 5 ranges working: 1d(1 candle), 5d(5), 1mo(22), ytd(116), max(168)
 - Build passing, all routes registered
+
+---
+Task ID: 12
+Agent: Main Agent
+Task: Add TradingEconomics Calendar API + upgrade to dual-source with auto failover
+
+Work Log:
+- Upgraded `/api/forex/calendar/route.ts` to dual-source architecture:
+  - Source 1 (Primary): TradingEconomics API — GET method, 8 countries, 14-day range, batched (2 at a time)
+  - Source 2 (Fallback): trader-calendar API — POST method, auto-activates if TE fails
+  - Country mapping: USD/EUR/GBP/JPY/AUD/CAD/CHF/NZD → full country names for TE
+  - Server-side filters: ?country=USD, ?impact=HIGH, ?refresh=true
+  - Response includes: source name, teConfigured, tcConfigured, teFailed, tcFailed
+- Upgraded `economic-calendar.tsx` component:
+  - Currency filter dropdown (ALL + 8 currencies with flags)
+  - Impact filter dropdown (All/High/High+Medium/Medium)
+  - High Only quick toggle button
+  - Impact statistics bar (HIGH/MED/LOW counts + progress bar)
+  - Actual data column (bold when available)
+  - Source badge showing which API is active (TradingEconomics/TraderCalendar)
+  - Category sub-labels on events
+- Added TRADEDECONOMICS_API_KEY/HOST to .env.example and render.yaml
+
+Stage Summary:
+- 227 events from 8 currencies (USD=50, EUR=30, GBP=32, JPY=42, AUD=37, CAD=18, CHF=9, NZD=9)
+- Auto failover: TE fails → TC takes over automatically
+- Client-side + server-side filtering for instant response

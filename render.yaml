@@ -36,3 +36,7 @@ services:
         sync: false
       - key: STOCK_PRICES_API_HOST
         value: stock-prices2.p.rapidapi.com
+      - key: TRADEDECONOMICS_API_KEY
+        sync: false
+      - key: TRADEDECONOMICS_API_HOST
+        value: economic-calendar-api-tradingeconomics.p.rapidapi.com
