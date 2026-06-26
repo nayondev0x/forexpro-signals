@@ -4,14 +4,15 @@
 
 **Professional Real-Time Trading Signal Dashboard**
 
-Live Forex, Stock & Crypto signals with technical analysis, economic calendar, and market intelligence — all in one place.
+Live Forex, Stock & Crypto signals with multi-indicator precision analysis, economic calendar, and market intelligence — all in one place.
 
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss)](https://tailwindcss.com/)
 [![shadcn/ui](https://img.shields.io/badge/shadcn%2Fui-latest-black)](https://ui.shadcn.com/)
+[![Deployed on Render](https://img.shields.io/badge/Render-deployed-4B2FBB?logo=render)](https://forexpro-signals.onrender.com/)
 
-**Developed by [nayondev](https://github.com/nayondev0x)**
+**Developed by [nayondev](https://github.com/nayondev0x)** | **Live Demo:** [forexpro-signals.onrender.com](https://forexpro-signals.onrender.com/)
 
 </div>
 
@@ -20,10 +21,26 @@ Live Forex, Stock & Crypto signals with technical analysis, economic calendar, a
 ## ✨ Features
 
 ### 📊 Forex Trading
-- **Live Prices** — 12 major/minor currency pairs with real-time bid/ask/spread
-- **AI Signals** — Technical analysis engine (RSI, MACD, EMA, SMA, Bollinger Bands, ATR)
+- **Precision Signal Engine v2** — 8+ technical indicators with 75%+ minimum confidence
+- **Multi-Indicator Analysis** — RSI, MACD crossover, EMA 5/10/20, Bollinger Bands, ATR, Candlestick patterns (Engulfing, Hammer, Shooting Star, Doji), Support/Resistance zones, Volatility expansion, Wick rejection
+- **Dynamic TP/SL** — 4:1 reward ratio (85%+ signals) / 2.5:1 (75-84% signals) based on real ATR
+- **Zero Fake Signals** — No random signals. Every signal needs minimum 5 confluences + 60% dominance
+- **Trend Filter** — No counter-trend trades, RSI divergence check, EMA20 distance filter
+- **Live Prices** — 9 major/minor currency pairs with real-time bid/ask/spread
 - **Live Charts** — Interactive Recharts with Entry/TP/SL reference lines
 - **Market Watch** — Currency pair cards with change %, spread, favorites
+
+### 🔌 LIVE ON/OFF Trading Mode
+- **Master Switch** — Turn ON when trading, OFF when done
+- **Zero API calls when OFF** — Saves free tier limits completely
+- **Persistent** — State saved in localStorage, remembers your choice
+- **Smart Banner** — Clear OFF state UI with "Start Trading" CTA
+
+### ⚡ 8-Key Smart API System
+- **4 Twelve Data + 4 Alpha Vantage keys** — 40+ requests/min capacity
+- **Per-key rate limiting** with automatic rotation
+- **Cross-API failover** — If one service exhausts, auto-switches to other
+- **Multi-layer caching** — Candles 5min / Prices 30s / Signals 20s
 
 ### 📅 Economic Calendar
 - **227+ Events** — 8 major currencies (USD, EUR, GBP, JPY, AUD, CAD, CHF, NZD)
@@ -40,7 +57,6 @@ Live Forex, Stock & Crypto signals with technical analysis, economic calendar, a
 - **5 Time Ranges** — 1D, 5D, 1M, YTD, All Time
 - **Interactive Charts** — Canvas-drawn OHLC charts with area fill
 - **Sparklines** — Mini SVG charts on stock list
-- **Price Table** — OHLCV data with color-coded changes
 - **Search** — Search any US stock ticker
 
 ### ₿ Crypto
@@ -72,6 +88,8 @@ Live Forex, Stock & Crypto signals with technical analysis, economic calendar, a
 | Animations | Framer Motion 12 |
 | Icons | Lucide React |
 | Fonts | Geist Sans / Geist Mono |
+| APIs | RapidAPI (Twelve Data, Alpha Vantage, TradingEconomics) |
+| Deployment | Render (Free Tier) |
 
 ---
 
@@ -80,12 +98,12 @@ Live Forex, Stock & Crypto signals with technical analysis, economic calendar, a
 ```
 src/
 ├── app/
-│   ├── page.tsx                    # Main SPA (11 tabs)
+│   ├── page.tsx                    # Main SPA (10 tabs)
 │   ├── layout.tsx                  # Root layout + theme
 │   └── api/
 │       ├── forex/
-│       │   ├── prices/             # Live forex prices (dual-API)
-│       │   ├── signal/             # AI trading signals
+│       │   ├── prices/             # Live forex prices (8-key dual-API)
+│       │   ├── signal/             # Precision Signal Engine v2
 │       │   ├── calendar/           # Economic calendar (dual-source)
 │       │   ├── news/               # Market news
 │       │   ├── price-history/      # OHLC chart data
@@ -103,10 +121,10 @@ src/
 │   ├── stocks/                     # Stock prices component
 │   ├── crypto/                     # Crypto signals component
 │   └── ui/                         # 50+ shadcn/ui components
-├── lib/
-│   └── rapidapi.ts                 # Dual-API key manager
-└── stores/
-    └── forex-store.ts              # Zustand persisted store
+├── stores/
+│   └── forex-store.ts              # Zustand persisted store (trading mode, favorites)
+render.yaml                         # Auto-deploy config for Render
+.env.example                        # Environment variable template
 ```
 
 ---
@@ -121,16 +139,22 @@ src/
 4. `render.yaml` will auto-configure the service
 5. Set **Environment Variables** in the Render dashboard:
 
-| Variable | Description |
-|----------|-------------|
-| `TWELVE_DATA_API_KEY` | Twelve Data RapidAPI key 1 |
-| `TWELVE_DATA_API_KEY_2` | Twelve Data RapidAPI key 2 (backup) |
-| `ALPHA_VANTAGE_API_KEY` | Alpha Vantage RapidAPI key 1 |
-| `ALPHA_VANTAGE_API_KEY_2` | Alpha Vantage RapidAPI key 2 (backup) |
-| `BREAKING_NEWS_API_KEY` | Breaking News API key |
-| `TRADEDECONOMICS_API_KEY` | TradingEconomics Calendar API key |
-| `STOCK_PRICES_API_KEY` | Stock Prices API key |
-| `SELFTRADE_API_KEY` | SelfTrade Crypto API key |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `TWELVE_DATA_API_KEY` | Yes | Twelve Data RapidAPI key (Account 1) |
+| `TWELVE_DATA_API_KEY_2` | No | Twelve Data key (Account 2) |
+| `TWELVE_DATA_API_KEY_3` | No | Twelve Data key (Account 3) |
+| `TWELVE_DATA_API_KEY_4` | No | Twelve Data key (Account 4) |
+| `ALPHA_VANTAGE_API_KEY` | Yes | Alpha Vantage RapidAPI key (Account 1) |
+| `ALPHA_VANTAGE_API_KEY_2` | No | Alpha Vantage key (Account 2) |
+| `ALPHA_VANTAGE_API_KEY_3` | No | Alpha Vantage key (Account 3) |
+| `ALPHA_VANTAGE_API_KEY_4` | No | Alpha Vantage key (Account 4) |
+| `BREAKING_NEWS_API_KEY` | No | Breaking News API key |
+| `TRADEDECONOMICS_API_KEY` | No | TradingEconomics Calendar API key |
+| `STOCK_PRICES_API_KEY` | No | Stock Prices API key |
+| `SELFTRADE_API_KEY` | No | SelfTrade Crypto API key |
+
+> **Tip:** Minimum 1 TD + 1 AV key needed for signals. More keys = more rate limit capacity (up to 8 keys = 40 req/min).
 
 6. Click **Deploy** — your site will be live in ~3 minutes!
 
@@ -153,16 +177,24 @@ Open [http://localhost:3000](http://localhost:3000)
 
 ## 🔑 API Architecture
 
-### Dual-API Smart Key System
-- **2 RapidAPI accounts × 4 services = 8 API keys**
-- Per-key rate limiting with automatic rotation
-- Cross-API failover (if one service exhausts, auto-switches)
-- Smart alternation: even-indexed pairs → AV first, odd → TD first
+### 8-Key Smart Rotation System
+- **4 Twelve Data + 4 Alpha Vantage keys** from up to 4 RapidAPI accounts
+- **Round-robin rotation** — each call uses the next available key
+- **Per-key rate limiting** — if a key hits 429, it's cooled down 60s, others continue
+- **Cross-API failover** — if TD exhausts, auto-switches to AV and vice versa
+- **Smart alternation** — even-indexed pairs try AV first, odd try TD first
+
+### Multi-Layer Caching Strategy
+| Layer | TTL | Purpose |
+|-------|-----|---------|
+| Signal Cache | 20 sec | Same signals shown without re-analysis |
+| Price Cache | 30 sec | Price data reused across requests |
+| Candle Cache | 5 min | Most expensive API calls minimized |
+| LIVE ON/OFF | Manual | Zero API calls when trading mode is OFF |
 
 ### Dual-Source Calendar
 - **Primary:** TradingEconomics (richer data, 227+ events)
 - **Fallback:** TraderCalendar (auto-activates on TE failure)
-- Server-side + client-side filtering
 
 ---
 
@@ -171,8 +203,8 @@ Open [http://localhost:3000](http://localhost:3000)
 ### Forex
 | Endpoint | Description |
 |----------|-------------|
-| `/api/forex/prices` | Live prices for 12 pairs |
-| `/api/forex/signal` | AI-generated trading signals |
+| `/api/forex/prices` | Live prices for 9 pairs (8-key rotation) |
+| `/api/forex/signal` | Precision Engine v2 signals (8+ indicators) |
 | `/api/forex/calendar` | Economic calendar (dual-source) |
 | `/api/forex/news` | Market news + sentiment |
 | `/api/forex/price-history` | OHLC candle data |
