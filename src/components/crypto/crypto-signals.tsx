@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Bitcoin, RefreshCw, TrendingUp, TrendingDown, Minus, Gauge,
   Flame, ArrowUpRight, ArrowDownRight, Loader2, Shield, Activity,
-  AlertTriangle, Zap
+  AlertTriangle, Zap, BarChart3, Layers, ArrowLeftRight, BookOpen
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -38,18 +38,44 @@ interface FearGreed {
   label: string;
 }
 
+interface BinanceFlow {
+  orderFlowScore: number;
+  signal: string;
+  reasons: string[];
+  depth: {
+    bidRatio: number; askRatio: number; imbalance: number;
+    bidWall: { price: number; volume: number };
+    askWall: { price: number; volume: number };
+    bestBid: number; bestAsk: number; spread: number; spreadPct: number;
+    signal: string;
+  } | null;
+  tradeFlow: {
+    totalTrades: number; buyTrades: number; sellTrades: number;
+    buyVolume: number; sellVolume: number;
+    buyRatio: number; sellRatio: number;
+    recentBuyRatio: number;
+    signal: string;
+  } | null;
+  ticker: {
+    price: number; change: number; changePercent: number;
+    high: number; low: number; volume: number;
+    volatility: number; rangePosition: number;
+    signal: string;
+  } | null;
+  bookTicker: {
+    bidPrice: number; bidQty: number;
+    askPrice: number; askQty: number;
+    spread: number; spreadPct: number;
+  } | null;
+}
+
 /* ─ Helpers ─ */
 const REGIME_COLORS: Record<string, string> = {
-  LOW_VOLATILITY: "text-amber-500",
-  TRENDING_UP: "text-emerald-500",
-  TRENDING_DOWN: "text-rose-500",
-  TREND_EXHAUSTING_UP: "text-orange-500",
-  TREND_EXHAUSTING_DOWN: "text-orange-500",
-  RANGING: "text-sky-500",
-  ANALYZING: "text-violet-500",
-  BREAKOUT: "text-cyan-500",
+  LOW_VOLATILITY: "text-amber-500", TRENDING_UP: "text-emerald-500",
+  TRENDING_DOWN: "text-rose-500", TREND_EXHAUSTING_UP: "text-orange-500",
+  TREND_EXHAUSTING_DOWN: "text-orange-500", RANGING: "text-sky-500",
+  ANALYZING: "text-violet-500", BREAKOUT: "text-cyan-500",
 };
-
 const REGIME_BG: Record<string, string> = {
   LOW_VOLATILITY: "bg-amber-500/10 border-amber-500/20",
   TRENDING_UP: "bg-emerald-500/10 border-emerald-500/20",
@@ -60,7 +86,6 @@ const REGIME_BG: Record<string, string> = {
   ANALYZING: "bg-violet-500/10 border-violet-500/20",
   BREAKOUT: "bg-cyan-500/10 border-cyan-500/20",
 };
-
 const ACTION_STYLES: Record<string, { bg: string; text: string; icon: typeof TrendingUp }> = {
   BUY: { bg: "bg-emerald-500/20 text-emerald-500 border-emerald-500/30", text: "BUY", icon: TrendingUp },
   LONG: { bg: "bg-emerald-500/20 text-emerald-500 border-emerald-500/30", text: "LONG", icon: TrendingUp },
@@ -69,23 +94,17 @@ const ACTION_STYLES: Record<string, { bg: string; text: string; icon: typeof Tre
   HOLD: { bg: "bg-amber-500/20 text-amber-500 border-amber-500/30", text: "HOLD", icon: Minus },
 };
 
-function getFearGreedColor(val: number): string {
-  if (val <= 20) return "text-rose-500";
-  if (val <= 40) return "text-orange-500";
-  if (val <= 60) return "text-amber-500";
-  if (val <= 80) return "text-emerald-500";
-  return "text-emerald-400";
+function getFearGreedColor(val: number) {
+  if (val <= 20) return "text-rose-500"; if (val <= 40) return "text-orange-500";
+  if (val <= 60) return "text-amber-500"; if (val <= 80) return "text-emerald-400";
+  return "text-emerald-500";
 }
-
-function getFearGreedBarColor(val: number): string {
-  if (val <= 20) return "bg-rose-500";
-  if (val <= 40) return "bg-orange-500";
-  if (val <= 60) return "bg-amber-500";
-  if (val <= 80) return "bg-emerald-400";
+function getFearGreedBarColor(val: number) {
+  if (val <= 20) return "bg-rose-500"; if (val <= 40) return "bg-orange-500";
+  if (val <= 60) return "bg-amber-500"; if (val <= 80) return "bg-emerald-400";
   return "bg-emerald-500";
 }
-
-function getFearGreedBg(val: number): string {
+function getFearGreedBg(val: number) {
   if (val <= 20) return "from-rose-500/20 to-rose-950/10";
   if (val <= 40) return "from-orange-500/20 to-orange-950/10";
   if (val <= 60) return "from-amber-500/20 to-amber-950/10";
@@ -96,31 +115,25 @@ function getFearGreedBg(val: number): string {
 /* ─ Fear & Greed Gauge ─ */
 function FearGreedGauge({ data }: { data: FearGreed | null }) {
   if (!data) return <div className="flex h-40 items-center justify-center text-muted-foreground/50">Loading...</div>;
-
-  const val = data.value;
-  const label = data.label;
-
   return (
     <div className="flex flex-col items-center gap-3">
-      <div className={`relative flex h-32 w-32 items-center justify-center rounded-full bg-gradient-to-br ${getFearGreedBg(val)} border border-border/30`}>
+      <div className={`relative flex h-32 w-32 items-center justify-center rounded-full bg-gradient-to-br ${getFearGreedBg(data.value)} border border-border/30`}>
         <div className="absolute inset-2 rounded-full bg-card/80" />
         <div className="relative flex flex-col items-center">
-          <span className={`text-3xl font-black ${getFearGreedColor(val)}`}>{val}</span>
+          <span className={`text-3xl font-black ${getFearGreedColor(data.value)}`}>{data.value}</span>
           <span className="text-[10px] font-semibold text-muted-foreground">/ 100</span>
         </div>
       </div>
       <div className="text-center">
-        <p className={`text-sm font-bold ${getFearGreedColor(val)}`}>{label}</p>
+        <p className={`text-sm font-bold ${getFearGreedColor(data.value)}`}>{data.label}</p>
         <p className="text-[10px] text-muted-foreground">Crypto Fear & Greed Index</p>
       </div>
       <div className="w-full">
         <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-          <div className={`h-full rounded-full transition-all duration-1000 ${getFearGreedBarColor(val)}`} style={{ width: `${val}%` }} />
+          <div className={`h-full rounded-full transition-all duration-1000 ${getFearGreedBarColor(data.value)}`} style={{ width: `${data.value}%` }} />
         </div>
         <div className="mt-1 flex justify-between text-[9px] text-muted-foreground">
-          <span className="text-rose-500">Extreme Fear</span>
-          <span>Neutral</span>
-          <span className="text-emerald-500">Extreme Greed</span>
+          <span className="text-rose-500">Extreme Fear</span><span>Neutral</span><span className="text-emerald-500">Extreme Greed</span>
         </div>
       </div>
     </div>
@@ -133,7 +146,6 @@ function SignalCard({ signal }: { signal: CryptoSignal }) {
   const style = ACTION_STYLES[action] || ACTION_STYLES.HOLD;
   const Icon = style.icon;
   const isAction = action === "BUY" || action === "SELL" || action === "LONG" || action === "SHORT";
-
   return (
     <Card className={`border-border/30 bg-card/80 backdrop-blur transition-all hover:border-foreground/20 ${isAction ? "ring-1 ring-emerald-500/20" : ""}`}>
       <CardContent className="p-3">
@@ -148,12 +160,9 @@ function SignalCard({ signal }: { signal: CryptoSignal }) {
         </div>
         <div className="flex items-center gap-2 mb-2">
           <Badge variant="outline" className={`text-[9px] px-1.5 py-0 border ${REGIME_BG[signal.regime] || ""} ${REGIME_COLORS[signal.regime] || "text-muted-foreground"}`}>
-            <Activity className="mr-1 h-2.5 w-2.5" />
-            {signal.regime?.replace(/_/g, " ") || "N/A"}
+            <Activity className="mr-1 h-2.5 w-2.5" />{signal.regime?.replace(/_/g, " ") || "N/A"}
           </Badge>
-          {signal.signal_score > 0 && (
-            <span className="text-[10px] text-muted-foreground">Score: {signal.signal_score}</span>
-          )}
+          {signal.signal_score > 0 && <span className="text-[10px] text-muted-foreground">Score: {signal.signal_score}</span>}
         </div>
         {(signal.sl_price || signal.tp_price) && (
           <div className="grid grid-cols-2 gap-2 mb-2">
@@ -182,50 +191,181 @@ function SignalCard({ signal }: { signal: CryptoSignal }) {
   );
 }
 
+/* ─ Order Flow Gauge ─ */
+function OrderFlowGauge({ flow, symbol }: { flow: BinanceFlow | null; symbol: string }) {
+  if (!flow) return <div className="flex h-48 items-center justify-center text-muted-foreground/50"><Loader2 className="h-5 w-5 animate-spin mr-2" />Loading order flow...</div>;
+
+  const score = flow.orderFlowScore;
+  const isBullish = score > 55;
+  const isBearish = score < 45;
+  const scoreColor = score > 65 ? "text-emerald-400" : score < 35 ? "text-rose-400" : score > 55 ? "text-emerald-500" : score < 45 ? "text-rose-500" : "text-amber-500";
+  const barColor = score > 65 ? "bg-emerald-400" : score < 35 ? "bg-rose-400" : score > 55 ? "bg-emerald-500" : score < 45 ? "bg-rose-500" : "bg-amber-500";
+
+  return (
+    <div className="space-y-3">
+      {/* Main Score */}
+      <div className="flex flex-col items-center gap-1">
+        <span className={`text-4xl font-black ${scoreColor}`}>{score}</span>
+        <span className="text-[10px] text-muted-foreground">Order Flow Score</span>
+        <Badge variant="outline" className={`text-[10px] font-bold ${
+          flow.signal.includes("STRONG_BUY") ? "border-emerald-500/50 bg-emerald-500/20 text-emerald-400" :
+          flow.signal.includes("BUY") ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500" :
+          flow.signal.includes("STRONG_SELL") ? "border-rose-500/50 bg-rose-500/20 text-rose-400" :
+          flow.signal.includes("SELL") ? "border-rose-500/30 bg-rose-500/10 text-rose-500" :
+          "border-amber-500/30 bg-amber-500/10 text-amber-500"
+        }`}>
+          {flow.signal.replace(/_/g, " ")}
+        </Badge>
+      </div>
+
+      {/* Progress bar */}
+      <div className="h-3 w-full overflow-hidden rounded-full bg-muted relative">
+        <div className={`h-full rounded-full transition-all duration-700 ${barColor}`} style={{ width: `${score}%` }} />
+        <div className="absolute inset-0 flex items-center justify-between px-1">
+          <span className="text-[8px] text-rose-500 font-bold">SELL</span>
+          <span className="text-[8px] text-muted-foreground font-bold">50</span>
+          <span className="text-[8px] text-emerald-500 font-bold">BUY</span>
+        </div>
+      </div>
+
+      {/* Reasons */}
+      {flow.reasons.length > 0 && (
+        <div className="space-y-1">
+          {flow.reasons.slice(0, 4).map((r, i) => (
+            <div key={i} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+              <span className={`h-1.5 w-1.5 rounded-full ${r.includes("buy") || r.includes("up") || r.includes("bullish") ? "bg-emerald-500" : r.includes("sell") || r.includes("down") || r.includes("bearish") ? "bg-rose-500" : "bg-amber-500"}`} />
+              {r}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Quick Stats */}
+      <div className="grid grid-cols-2 gap-2">
+        {/* Depth */}
+        {flow.depth && (
+          <div className="rounded-md bg-muted/30 p-2">
+            <div className="flex items-center gap-1 mb-1">
+              <Layers className="h-3 w-3 text-blue-400" />
+              <span className="text-[9px] font-semibold text-muted-foreground">Order Book</span>
+            </div>
+            <div className="flex items-center justify-between text-[10px]">
+              <span className="text-emerald-500">{flow.depth.bidRatio}%</span>
+              <ArrowLeftRight className="h-2.5 w-2.5 text-muted-foreground" />
+              <span className="text-rose-500">{flow.depth.askRatio}%</span>
+            </div>
+            <div className="text-[8px] text-muted-foreground mt-0.5">
+              Bid: {flow.depth.bestBid.toFixed(2)} | Ask: {flow.depth.bestAsk.toFixed(2)}
+            </div>
+          </div>
+        )}
+
+        {/* Trade Flow */}
+        {flow.tradeFlow && (
+          <div className="rounded-md bg-muted/30 p-2">
+            <div className="flex items-center gap-1 mb-1">
+              <BarChart3 className="h-3 w-3 text-purple-400" />
+              <span className="text-[9px] font-semibold text-muted-foreground">Trade Flow</span>
+            </div>
+            <div className="flex items-center justify-between text-[10px]">
+              <span className="text-emerald-500">{flow.tradeFlow.buyRatio}%</span>
+              <span className="text-[9px] text-muted-foreground">{flow.tradeFlow.totalTrades} trades</span>
+              <span className="text-rose-500">{flow.tradeFlow.sellRatio}%</span>
+            </div>
+            <div className="text-[8px] text-muted-foreground mt-0.5">
+              Buy: {flow.tradeFlow.buyTrades} | Sell: {flow.tradeFlow.sellTrades}
+            </div>
+          </div>
+        )}
+
+        {/* Ticker */}
+        {flow.ticker && (
+          <div className="rounded-md bg-muted/30 p-2">
+            <div className="flex items-center gap-1 mb-1">
+              <Activity className="h-3 w-3 text-orange-400" />
+              <span className="text-[9px] font-semibold text-muted-foreground">24h Price</span>
+            </div>
+            <div className="font-mono text-xs font-bold text-foreground">${flow.ticker.price?.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+            <div className={`text-[10px] font-semibold ${flow.ticker.changePercent >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+              {flow.ticker.changePercent >= 0 ? "+" : ""}{flow.ticker.changePercent.toFixed(2)}%
+            </div>
+          </div>
+        )}
+
+        {/* Book Ticker */}
+        {flow.bookTicker && (
+          <div className="rounded-md bg-muted/30 p-2">
+            <div className="flex items-center gap-1 mb-1">
+              <BookOpen className="h-3 w-3 text-cyan-400" />
+              <span className="text-[9px] font-semibold text-muted-foreground">Best Bid/Ask</span>
+            </div>
+            <div className="text-[10px]">
+              <span className="text-emerald-500 font-mono">{flow.bookTicker.bidPrice.toFixed(2)}</span>
+              <span className="text-muted-foreground mx-1">/</span>
+              <span className="text-rose-500 font-mono">{flow.bookTicker.askPrice.toFixed(2)}</span>
+            </div>
+            <div className="text-[8px] text-muted-foreground mt-0.5">
+              Spread: {flow.bookTicker.spreadPct.toFixed(4)}%
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ─ Main Component ─ */
 export function CryptoSignals() {
   const [signals, setSignals] = useState<CryptoSignal[]>([]);
   const [fearGreed, setFearGreed] = useState<FearGreed | null>(null);
   const [fundingRates, setFundingRates] = useState<FundingRate[]>([]);
+  const [binanceFlow, setBinanceFlow] = useState<BinanceFlow | null>(null);
+  const [selectedSymbol, setSelectedSymbol] = useState("BTCUSDT");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [flowLoading, setFlowLoading] = useState(false);
+
+  const CRYPTO_SYMBOLS = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"];
 
   const fetchData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
 
-    const [sigRes, fgRes, frRes] = await Promise.allSettled([
+    const [sigRes, fgRes, frRes, binanceRes] = await Promise.allSettled([
       fetch("/api/crypto/signal?action=all").then(r => r.json()),
       fetch("/api/crypto/fear-greed").then(r => r.json()),
       fetch("/api/crypto/funding-rates").then(r => r.json()),
+      fetch(`/api/crypto/binance?symbol=${selectedSymbol}&action=all`).then(r => r.json()),
     ]);
 
-    if (sigRes.status === "fulfilled" && sigRes.value?.signals) {
-      setSignals(sigRes.value.signals);
-    }
-    if (fgRes.status === "fulfilled" && fgRes.value?.value !== undefined) {
-      setFearGreed({ value: fgRes.value.value, label: fgRes.value.label });
-    }
-    if (frRes.status === "fulfilled" && frRes.value?.top_rates) {
-      setFundingRates(frRes.value.top_rates);
-    }
+    if (sigRes.status === "fulfilled" && sigRes.value?.signals) setSignals(sigRes.value.signals);
+    if (fgRes.status === "fulfilled" && fgRes.value?.value !== undefined) setFearGreed({ value: fgRes.value.value, label: fgRes.value.label });
+    if (frRes.status === "fulfilled" && frRes.value?.top_rates) setFundingRates(frRes.value.top_rates);
+    if (binanceRes.status === "fulfilled" && binanceRes.value?.orderFlowScore !== undefined) setBinanceFlow(binanceRes.value);
 
     setLoading(false);
     setRefreshing(false);
-  }, []);
+  }, [selectedSymbol]);
+
+  const fetchFlowOnly = useCallback(async () => {
+    setFlowLoading(true);
+    const res = await fetch(`/api/crypto/binance?symbol=${selectedSymbol}&action=all`);
+    const data = await res.json();
+    if (data?.orderFlowScore !== undefined) setBinanceFlow(data);
+    setFlowLoading(false);
+  }, [selectedSymbol]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const handleRefresh = () => fetchData(true);
 
-  // Stats
   const buyCount = signals.filter(s => s.action?.toUpperCase() === "BUY" || s.action?.toUpperCase() === "LONG").length;
   const sellCount = signals.filter(s => s.action?.toUpperCase() === "SELL" || s.action?.toUpperCase() === "SHORT").length;
   const holdCount = signals.filter(s => s.action?.toUpperCase() === "HOLD").length;
 
   return (
     <div className="space-y-4">
-      {/* Top Row: Fear/Greed + Funding Rates */}
+      {/* Top Row: Fear/Greed + Order Flow + Funding Rates */}
       <div className="grid gap-4 lg:grid-cols-3">
         {/* Fear & Greed */}
         <Card className="border-border/30 bg-card/80 backdrop-blur">
@@ -236,13 +376,43 @@ export function CryptoSignals() {
               <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-[10px] text-emerald-500">LIVE</Badge>
             </CardTitle>
           </CardHeader>
+          <CardContent><FearGreedGauge data={fearGreed} /></CardContent>
+        </Card>
+
+        {/* Binance Order Flow */}
+        <Card className="border-border/30 bg-card/80 backdrop-blur">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <Zap className="h-4 w-4 text-amber-500" />
+                Order Flow
+                <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-500">BINANCE</Badge>
+              </CardTitle>
+              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={fetchFlowOnly} disabled={flowLoading}>
+                <RefreshCw className={`h-3 ${flowLoading ? "animate-spin" : ""}`} />
+              </Button>
+            </div>
+            {/* Symbol selector */}
+            <div className="flex flex-wrap gap-1 mt-1">
+              {CRYPTO_SYMBOLS.map(s => (
+                <button key={s} onClick={() => setSelectedSymbol(s)}
+                  className={`text-[9px] px-1.5 py-0.5 rounded-md font-semibold transition-all ${
+                    selectedSymbol === s
+                      ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                      : "bg-muted/30 text-muted-foreground border border-transparent hover:bg-muted/50"
+                  }`}>
+                  {s.replace("USDT", "")}
+                </button>
+              ))}
+            </div>
+          </CardHeader>
           <CardContent>
-            <FearGreedGauge data={fearGreed} />
+            <OrderFlowGauge flow={binanceFlow} symbol={selectedSymbol} />
           </CardContent>
         </Card>
 
         {/* Funding Rates */}
-        <Card className="lg:col-span-2 border-border/30 bg-card/80 backdrop-blur">
+        <Card className="lg:col-span-1 border-border/30 bg-card/80 backdrop-blur">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm">
               <Flame className="h-4 w-4 text-orange-500" />
@@ -257,7 +427,7 @@ export function CryptoSignals() {
               <div className="flex items-center justify-center py-8 text-muted-foreground/50 text-sm">Loading funding rates...</div>
             ) : (
               <div className="divide-y divide-border/10">
-                {fundingRates.slice(0, 8).map((fr, i) => {
+                {fundingRates.slice(0, 6).map((fr, i) => {
                   const isPositive = fr.funding_rate >= 0;
                   return (
                     <div key={fr.symbol} className="flex items-center justify-between px-4 py-2 hover:bg-muted/30 transition-colors">
@@ -267,12 +437,11 @@ export function CryptoSignals() {
                         <span className="text-[10px] text-muted-foreground">/USDT</span>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className="text-[10px] text-muted-foreground">${fr.mark_price?.toFixed(4)}</span>
+                        <span className="text-[10px] text-muted-foreground">${fr.mark_price?.toFixed(2)}</span>
                         <span className={`flex items-center gap-0.5 text-xs font-bold ${isPositive ? "text-emerald-500" : "text-rose-500"}`}>
                           {isPositive ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
                           {fr.funding_rate_8h}
                         </span>
-                        <span className="text-[9px] text-muted-foreground max-w-[100px] truncate">{fr.direction}</span>
                       </div>
                     </div>
                   );
@@ -293,7 +462,6 @@ export function CryptoSignals() {
               <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-[10px] text-emerald-500">LIVE</Badge>
             </CardTitle>
             <div className="flex items-center gap-3">
-              {/* Stats pills */}
               <div className="flex items-center gap-2 text-[10px]">
                 <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" />{buyCount} Buy</span>
                 <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-rose-500" />{sellCount} Sell</span>
