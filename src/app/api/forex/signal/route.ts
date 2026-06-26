@@ -405,10 +405,36 @@ const PAIRS = [
   { pair: "XAU/USD", from: "XAU", to: "USD" },
 ];
 
-/* ─── Cache ─── */
+/* ─── Multi-Layer Cache ─── */
 let cachedSignals: any[] = [];
 let lastSignalTime = 0;
-const SIGNAL_TTL = 15000;
+const SIGNAL_TTL = 20000; // 20s signal cache
+
+// Candle cache — 5 min TTL (save 9 API calls per cycle)
+let candleCache: Record<string, { data: any[]; time: number }> = {};
+const CANDLE_TTL = 300000; // 5 minutes
+
+// Price cache — 30s TTL
+let priceCache: Record<string, { data: { price: number; bid: number; ask: number; src: string; key: string } | null; time: number }> = {};
+const PRICE_TTL = 30000; // 30 seconds
+
+async function getCachedCandles(from: string, to: string): Promise<any[]> {
+  const k = `${from}/${to}`;
+  const cached = candleCache[k];
+  if (cached && Date.now() - cached.time < CANDLE_TTL) return cached.data;
+  const data = await fetchCandles(from, to);
+  if (data.length > 0) candleCache[k] = { data, time: Date.now() };
+  return data;
+}
+
+async function getCachedPrice(pair: string, from: string, to: string, preferAV: boolean) {
+  const k = pair;
+  const cached = priceCache[k];
+  if (cached && Date.now() - cached.time < PRICE_TTL) return cached.data;
+  const data = await fetchPrice(pair, from, to, preferAV);
+  priceCache[k] = { data, time: Date.now() };
+  return data;
+}
 
 export async function GET() {
   if (cachedSignals.length > 0 && Date.now() - lastSignalTime < SIGNAL_TTL) {
@@ -417,30 +443,34 @@ export async function GET() {
 
   try {
     const signals: any[] = [];
-    // Check all 9 pairs — only best ones pass the strict filter
-    const shuffled = [...PAIRS].sort(() => Math.random() - 0.5);
 
-    for (let i = 0; i < shuffled.length; i++) {
-      const { pair, from, to } = shuffled[i];
+    // ─── PHASE 1: Fetch all prices (1 API call per pair, cached 30s) ───
+    const priceResults: { pair: string; from: string; to: string; price: number; src: string; key: string }[] = [];
+
+    for (let i = 0; i < PAIRS.length; i++) {
+      const { pair, from, to } = PAIRS[i];
       try {
-        const preferAV = i % 2 === 0;
-        const pd = await fetchPrice(pair, from, to, preferAV);
-        if (!pd) continue;
-
-        let candles: any[] = [];
-        try { candles = await fetchCandles(from, to); } catch {}
-
-        const sig = analyze(pair, pd.price, candles, pd.src, pd.key);
-        if (sig) signals.push(sig);
+        const pd = await getCachedPrice(pair, from, to, i % 2 === 0);
+        if (pd) priceResults.push({ pair, from, to, price: pd.price, src: pd.src, key: pd.key });
       } catch {}
-      await new Promise(r => setTimeout(r, 250));
+      await new Promise(r => setTimeout(r, 200));
     }
 
-    // Sort by confidence — best signals first
-    signals.sort((a, b) => b.confidence - a.confidence);
+    // ─── PHASE 2: Fetch candles ONLY for pairs with price (cached 5min) ───
+    for (let i = 0; i < priceResults.length; i++) {
+      const { pair, from, to, price, src, key } = priceResults[i];
+      try {
+        // Candle fetch only uses AV, spread across calls to avoid rate limit
+        const candles = await getCachedCandles(from, to);
+        const sig = analyze(pair, price, candles, src, key);
+        if (sig) signals.push(sig);
+      } catch {}
+      await new Promise(r => setTimeout(r, 350));
+    }
 
-    // Keep top 5
-    const topSignals = signals.slice(0, 5);
+    // Sort by confidence
+    signals.sort((a, b) => b.confidence - a.confidence);
+    const topSignals = signals.slice(0, 6);
 
     if (topSignals.length > 0) { cachedSignals = topSignals; lastSignalTime = Date.now(); }
 
@@ -448,7 +478,7 @@ export async function GET() {
       source: topSignals.length > 0 ? "RapidAPI (Precision Engine v2)" : "no-qualifying-signals",
       signals: topSignals.length > 0 ? topSignals : cachedSignals,
       generated: topSignals.length,
-      totalChecked: shuffled.length,
+      totalChecked: PAIRS.length,
       apiStats: api.stats,
     });
   } catch {
