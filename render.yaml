@@ -60,3 +60,7 @@ services:
         sync: false
       - key: SELFTRADE_API_HOST
         value: selftrade.p.rapidapi.com
+      - key: CRYPTO_TA_API_KEY
+        sync: false
+      - key: CRYPTO_TA_API_HOST
+        value: crypto-technical-analysis-indicator-apis-for-trading.p.rapidapi.com
