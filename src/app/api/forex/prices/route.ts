@@ -199,7 +199,7 @@ function getDec(p: string) { return (p.includes("XAU") || p.includes("XAG") || p
 
 export async function GET() {
   try {
-    const prices = [];
+    const prices: any[] = [];
     let liveCount = 0;
     let avCount = 0, tdCount = 0;
     const sources: string[] = [];

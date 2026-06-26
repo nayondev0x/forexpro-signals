@@ -35,6 +35,17 @@ interface StockPricePoint {
   volume: number;
 }
 
+interface StockSummary {
+  ticker: string;
+  price: number;
+  change: number;
+  changePercent: number;
+  high: number;
+  low: number;
+  volume: number;
+  prices?: StockPricePoint[];
+}
+
 interface StockData {
   ticker: string;
   range: Range;
@@ -207,14 +218,19 @@ export async function GET(req: NextRequest) {
   }
 
   // Multiple tickers
-  const tickers = searchParams.get("tickers");
-  if (tickers) {
-    const tickerList = tickers.split(",").map(t => t.trim().toUpperCase());
+  const tickersQuery = searchParams.get("tickers");
+  if (tickersQuery) {
+    const tickerList = tickersQuery.split(",").map(t => t.trim().toUpperCase());
     const results = await Promise.allSettled(
-      tickerList.map(async (t) => ({ ticker: t, ...(await fetchStockPrice(t, range))! }))
+      tickerList.map(async (t) => {
+        const d = await fetchStockPrice(t, range);
+        if (!d) return null;
+        const { ticker: _, ...rest } = d;
+        return { ticker: t, ...rest };
+      })
     );
     const stocks = results
-      .filter((r): r is PromiseFulfilledResult<any> => r.status === "fulfilled" && r.value?.prices)
+      .filter((r): r is PromiseFulfilledResult<StockData> => r.status === "fulfilled" && r.value !== null)
       .map(r => r.value);
     return NextResponse.json({ stocks, range, cached: false });
   }

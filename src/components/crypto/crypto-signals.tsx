@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Bitcoin, RefreshCw, TrendingUp, TrendingDown, Minus, Gauge,
   Flame, ArrowUpRight, ArrowDownRight, Loader2, Shield, Activity,
-  AlertTriangle, Zap, BarChart3, Layers, ArrowLeftRight, BookOpen
+  AlertTriangle, Zap, BarChart3, Layers, ArrowLeftRight, BookOpen,
+  Brain, Eye, Users, Bell, Info
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -314,12 +315,155 @@ function OrderFlowGauge({ flow, symbol }: { flow: BinanceFlow | null; symbol: st
   );
 }
 
+/* ─ Sentiment Types ─ */
+interface SentimentData {
+  crowding: {
+    score: number; direction: string; level: string;
+    contrarianSignal: string; warning: string | null;
+  } | null;
+  signals: {
+    signal: string; confidence: number | null; reasoning: string; timeframe: string;
+  } | null;
+  alerts: Array<{ type: string; message: string; severity: string }> | null;
+  context: {
+    sentiment: string; trend: string; volatility: string; riskLevel: string; summary: string;
+  } | null;
+}
+
+/* ─ Sentiment Panel ─ */
+function SentimentPanel({ data, symbol }: { data: SentimentData | null; symbol: string }) {
+  if (!data) return <div className="flex items-center justify-center py-8 text-muted-foreground/50"><Loader2 className="h-4 w-4 animate-spin mr-2" />Loading sentiment...</div>;
+
+  const coin = symbol.replace("USDT", "");
+
+  return (
+    <div className="space-y-3">
+      {/* Crowding Score */}
+      {data.crowding && (
+        <div className={`rounded-lg p-3 border ${
+          data.crowding.level === "EXTREME" ? "bg-rose-500/10 border-rose-500/30" :
+          data.crowding.level === "HIGH" ? "bg-amber-500/10 border-amber-500/30" :
+          "bg-muted/30 border-border/20"
+        }`}>
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center gap-1.5">
+              <Users className="h-3.5 w-3.5 text-purple-400" />
+              <span className="text-[10px] font-bold text-foreground">Crowding Score</span>
+            </div>
+            <span className={`text-xs font-black ${
+              data.crowding.score >= 70 ? "text-rose-400" :
+              data.crowding.score >= 50 ? "text-amber-500" :
+              "text-emerald-500"
+            }`}>{data.crowding.score}</span>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted/50">
+            <div className={`h-full rounded-full transition-all duration-500 ${
+              data.crowding.score >= 70 ? "bg-rose-400" :
+              data.crowding.score >= 50 ? "bg-amber-500" :
+              "bg-emerald-500"
+            }`} style={{ width: `${data.crowding.score}%` }} />
+          </div>
+          <div className="flex items-center justify-between mt-1">
+            <span className="text-[9px] text-muted-foreground">Direction: <span className={data.crowding.direction.includes("long") || data.crowding.direction.includes("buy") ? "text-emerald-500" : data.crowding.direction.includes("short") || data.crowding.direction.includes("sell") ? "text-rose-500" : "text-amber-500"}>{data.crowding.direction}</span></span>
+            <Badge variant="outline" className={`text-[8px] ${
+              data.crowding.level === "EXTREME" ? "border-rose-500/40 bg-rose-500/15 text-rose-400" :
+              data.crowding.level === "HIGH" ? "border-amber-500/40 bg-amber-500/15 text-amber-500" :
+              "border-emerald-500/40 bg-emerald-500/15 text-emerald-500"
+            }`}>{data.crowding.level}</Badge>
+          </div>
+          {data.crowding.contrarianSignal !== "NONE" && (
+            <div className={`mt-2 rounded-md p-1.5 text-[9px] font-semibold ${
+              data.crowding.contrarianSignal === "CONTRARIAN_SELL"
+                ? "bg-rose-500/15 text-rose-400"
+                : "bg-emerald-500/15 text-emerald-400"
+            }`}>
+              <AlertTriangle className="inline h-2.5 w-2.5 mr-1" />
+              {data.crowding.contrarianSignal.replace("_", " ")}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Sentiment Signal */}
+      {data.signals && (
+        <div className="rounded-md bg-muted/30 p-2.5">
+          <div className="flex items-center gap-1.5 mb-1">
+            <Zap className="h-3 w-3 text-yellow-400" />
+            <span className="text-[9px] font-bold text-foreground">Sentiment Signal</span>
+            {data.signals.confidence !== null && (
+              <span className="text-[8px] text-muted-foreground ml-auto">{data.signals.confidence}%</span>
+            )}
+          </div>
+          <Badge variant="outline" className={`text-[9px] font-bold ${
+            data.signals.signal.includes("BUY") || data.signals.signal.includes("LONG") || data.signals.signal.includes("BULL")
+              ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-400"
+              : data.signals.signal.includes("SELL") || data.signals.signal.includes("SHORT") || data.signals.signal.includes("BEAR")
+                ? "border-rose-500/40 bg-rose-500/15 text-rose-400"
+                : "border-amber-500/40 bg-amber-500/15 text-amber-500"
+          }`}>
+            {data.signals.signal}
+          </Badge>
+          {data.signals.reasoning && (
+            <p className="text-[9px] text-muted-foreground mt-1 overflow-hidden" style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{data.signals.reasoning}</p>
+          )}
+        </div>
+      )}
+
+      {/* Market Context */}
+      {data.context && (
+        <div className="rounded-md bg-muted/30 p-2.5">
+          <div className="flex items-center gap-1.5 mb-1">
+            <Eye className="h-3 w-3 text-sky-400" />
+            <span className="text-[9px] font-bold text-foreground">Market Context</span>
+          </div>
+          <div className="grid grid-cols-2 gap-1 text-[9px]">
+            <div><span className="text-muted-foreground">Sentiment:</span> <span className={`font-semibold ${data.context.sentiment.includes("bull") || data.context.sentiment.includes("positive") || data.context.sentiment.includes("greed") ? "text-emerald-500" : data.context.sentiment.includes("bear") || data.context.sentiment.includes("negative") || data.context.sentiment.includes("fear") ? "text-rose-500" : "text-amber-500"}`}>{data.context.sentiment}</span></div>
+            <div><span className="text-muted-foreground">Trend:</span> <span className={`font-semibold ${data.context.trend.includes("up") || data.context.trend.includes("bull") ? "text-emerald-500" : data.context.trend.includes("down") || data.context.trend.includes("bear") ? "text-rose-500" : "text-amber-500"}`}>{data.context.trend}</span></div>
+            <div><span className="text-muted-foreground">Volatility:</span> <span className="font-semibold text-foreground">{data.context.volatility}</span></div>
+            <div><span className="text-muted-foreground">Risk:</span> <span className={`font-semibold ${data.context.riskLevel.includes("high") || data.context.riskLevel.includes("extreme") ? "text-rose-500" : data.context.riskLevel.includes("low") ? "text-emerald-500" : "text-amber-500"}`}>{data.context.riskLevel}</span></div>
+          </div>
+          {data.context.summary && (
+            <p className="text-[9px] text-muted-foreground mt-1.5 overflow-hidden" style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }}>{data.context.summary}</p>
+          )}
+        </div>
+      )}
+
+      {/* Alerts */}
+      {data.alerts && data.alerts.length > 0 && (
+        <div className="space-y-1">
+          <div className="flex items-center gap-1.5">
+            <Bell className="h-3 w-3 text-orange-400" />
+            <span className="text-[9px] font-bold text-foreground">Active Alerts</span>
+            <Badge variant="outline" className="text-[8px] border-orange-500/30 bg-orange-500/10 text-orange-500">{data.alerts.length}</Badge>
+          </div>
+          {data.alerts.slice(0, 4).map((a, i) => (
+            <div key={i} className={`rounded-md p-1.5 text-[9px] ${
+              a.severity === "high" || a.severity === "critical" ? "bg-rose-500/10 border border-rose-500/20" :
+              a.severity === "medium" ? "bg-amber-500/10 border border-amber-500/20" :
+              "bg-muted/20 border border-border/10"
+            }`}>
+              <div className="flex items-center gap-1">
+                <Info className={`h-2.5 w-2.5 flex-shrink-0 ${
+                  a.severity === "high" || a.severity === "critical" ? "text-rose-400" :
+                  a.severity === "medium" ? "text-amber-400" : "text-sky-400"
+                }`} />
+                <span className="text-muted-foreground">{a.message}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─ Main Component ─ */
 export function CryptoSignals() {
   const [signals, setSignals] = useState<CryptoSignal[]>([]);
   const [fearGreed, setFearGreed] = useState<FearGreed | null>(null);
   const [fundingRates, setFundingRates] = useState<FundingRate[]>([]);
   const [binanceFlow, setBinanceFlow] = useState<BinanceFlow | null>(null);
+  const [sentimentData, setSentimentData] = useState<SentimentData | null>(null);
   const [selectedSymbol, setSelectedSymbol] = useState("BTCUSDT");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -331,17 +475,19 @@ export function CryptoSignals() {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
 
-    const [sigRes, fgRes, frRes, binanceRes] = await Promise.allSettled([
+    const [sigRes, fgRes, frRes, binanceRes, sentRes] = await Promise.allSettled([
       fetch("/api/crypto/signal?action=all").then(r => r.json()),
       fetch("/api/crypto/fear-greed").then(r => r.json()),
       fetch("/api/crypto/funding-rates").then(r => r.json()),
       fetch(`/api/crypto/binance?symbol=${selectedSymbol}&action=all`).then(r => r.json()),
+      fetch(`/api/crypto/sentiment?symbol=${selectedSymbol.replace("USDT", "")}&action=all`).then(r => r.json()),
     ]);
 
     if (sigRes.status === "fulfilled" && sigRes.value?.signals) setSignals(sigRes.value.signals);
     if (fgRes.status === "fulfilled" && fgRes.value?.value !== undefined) setFearGreed({ value: fgRes.value.value, label: fgRes.value.label });
     if (frRes.status === "fulfilled" && frRes.value?.top_rates) setFundingRates(frRes.value.top_rates);
     if (binanceRes.status === "fulfilled" && binanceRes.value?.orderFlowScore !== undefined) setBinanceFlow(binanceRes.value);
+    if (sentRes.status === "fulfilled" && sentRes.value) setSentimentData(sentRes.value);
 
     setLoading(false);
     setRefreshing(false);
@@ -349,9 +495,12 @@ export function CryptoSignals() {
 
   const fetchFlowOnly = useCallback(async () => {
     setFlowLoading(true);
-    const res = await fetch(`/api/crypto/binance?symbol=${selectedSymbol}&action=all`);
-    const data = await res.json();
-    if (data?.orderFlowScore !== undefined) setBinanceFlow(data);
+    const [binRes, sentRes] = await Promise.allSettled([
+      fetch(`/api/crypto/binance?symbol=${selectedSymbol}&action=all`).then(r => r.json()),
+      fetch(`/api/crypto/sentiment?symbol=${selectedSymbol.replace("USDT", "")}&action=all`).then(r => r.json()),
+    ]);
+    if (binRes.status === "fulfilled" && binRes.value?.orderFlowScore !== undefined) setBinanceFlow(binRes.value);
+    if (sentRes.status === "fulfilled" && sentRes.value) setSentimentData(sentRes.value);
     setFlowLoading(false);
   }, [selectedSymbol]);
 
@@ -365,8 +514,8 @@ export function CryptoSignals() {
 
   return (
     <div className="space-y-4">
-      {/* Top Row: Fear/Greed + Order Flow + Funding Rates */}
-      <div className="grid gap-4 lg:grid-cols-3">
+      {/* Top Row: Fear/Greed + Funding Rates */}
+      <div className="grid gap-4 lg:grid-cols-2">
         {/* Fear & Greed */}
         <Card className="border-border/30 bg-card/80 backdrop-blur">
           <CardHeader className="pb-2">
@@ -379,40 +528,8 @@ export function CryptoSignals() {
           <CardContent><FearGreedGauge data={fearGreed} /></CardContent>
         </Card>
 
-        {/* Binance Order Flow */}
-        <Card className="border-border/30 bg-card/80 backdrop-blur">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <Zap className="h-4 w-4 text-amber-500" />
-                Order Flow
-                <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-500">BINANCE</Badge>
-              </CardTitle>
-              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={fetchFlowOnly} disabled={flowLoading}>
-                <RefreshCw className={`h-3 ${flowLoading ? "animate-spin" : ""}`} />
-              </Button>
-            </div>
-            {/* Symbol selector */}
-            <div className="flex flex-wrap gap-1 mt-1">
-              {CRYPTO_SYMBOLS.map(s => (
-                <button key={s} onClick={() => setSelectedSymbol(s)}
-                  className={`text-[9px] px-1.5 py-0.5 rounded-md font-semibold transition-all ${
-                    selectedSymbol === s
-                      ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                      : "bg-muted/30 text-muted-foreground border border-transparent hover:bg-muted/50"
-                  }`}>
-                  {s.replace("USDT", "")}
-                </button>
-              ))}
-            </div>
-          </CardHeader>
-          <CardContent>
-            <OrderFlowGauge flow={binanceFlow} symbol={selectedSymbol} />
-          </CardContent>
-        </Card>
-
         {/* Funding Rates */}
-        <Card className="lg:col-span-1 border-border/30 bg-card/80 backdrop-blur">
+        <Card className="border-border/30 bg-card/80 backdrop-blur">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm">
               <Flame className="h-4 w-4 text-orange-500" />
@@ -448,6 +565,56 @@ export function CryptoSignals() {
                 })}
               </div>
             )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Signals Section */}
+      {/* Sentiment + Order Flow Row */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="border-border/30 bg-card/80 backdrop-blur">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <Brain className="h-4 w-4 text-purple-500" />
+                Sentiment Analysis
+                <Badge variant="outline" className="border-purple-500/30 bg-purple-500/10 text-[10px] text-purple-500">CRYPTOEDGE</Badge>
+              </CardTitle>
+            </div>
+            <div className="flex flex-wrap gap-1 mt-1">
+              {CRYPTO_SYMBOLS.map(s => (
+                <button key={s} onClick={() => setSelectedSymbol(s)}
+                  className={`text-[9px] px-1.5 py-0.5 rounded-md font-semibold transition-all ${
+                    selectedSymbol === s
+                      ? "bg-purple-500/20 text-purple-400 border border-purple-500/30"
+                      : "bg-muted/30 text-muted-foreground border border-transparent hover:bg-muted/50"
+                  }`}>
+                  {s.replace("USDT", "")}
+                </button>
+              ))}
+            </div>
+          </CardHeader>
+          <CardContent>
+            <SentimentPanel data={sentimentData} symbol={selectedSymbol} />
+          </CardContent>
+        </Card>
+
+        {/* Order Flow - takes full width on mobile, half on lg */}
+        <Card className="border-border/30 bg-card/80 backdrop-blur">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <Zap className="h-4 w-4 text-amber-500" />
+                Order Flow
+                <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-500">BINANCE</Badge>
+              </CardTitle>
+              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={fetchFlowOnly} disabled={flowLoading}>
+                <RefreshCw className={`h-3 ${flowLoading ? "animate-spin" : ""}`} />
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <OrderFlowGauge flow={binanceFlow} symbol={selectedSymbol} />
           </CardContent>
         </Card>
       </div>

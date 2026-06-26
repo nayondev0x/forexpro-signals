@@ -1,241 +1,256 @@
 <div align="center">
 
-# 📈 ForexPro Signals
+# ForexPro Signals
 
-**Professional Real-Time Trading Signal Dashboard**
+**পেশাদার রিয়েল-টাইম ট্রেডিং সিগন্যাল ড্যাশবোর্ড**
 
-Live Forex, Stock & Crypto signals with multi-indicator precision analysis, economic calendar, and market intelligence — all in one place.
+লাইভ ফরেক্স, স্টক ও ক্রিপ্টো সিগন্যাল — মাল্টি-ইন্ডিকেটর প্রিসিশন বিশ্লেষণ, ইকোনমিক ক্যালেন্ডার এবং মার্কেট ইন্টেলিজেন্স — সব এক জায়গায়।
 
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss)](https://tailwindcss.com/)
 [![shadcn/ui](https://img.shields.io/badge/shadcn%2Fui-latest-black)](https://ui.shadcn.com/)
-[![Deployed on Render](https://img.shields.io/badge/Render-deployed-4B2FBB?logo=render)](https://forexpro-signals.onrender.com/)
+[![Render](https://img.shields.io/badge/Render-deployed-4B2FBB?logo=render)](https://forexpro-signals.onrender.com/)
 
-**Developed by [nayondev](https://github.com/nayondev0x)** | **Live Demo:** [forexpro-signals.onrender.com](https://forexpro-signals.onrender.com/)
+**ডেভেলপার: [nayondev](https://github.com/nayondev0x)** | **লাইভ ডেমো:** [forexpro-signals.onrender.com](https://forexpro-signals.onrender.com/)
 
 </div>
 
 ---
 
-## ✨ Features
+## ফিচার সমূহ
 
-### 📊 Forex Trading
-- **Precision Signal Engine v2** — 8+ technical indicators with 75%+ minimum confidence
-- **Multi-Indicator Analysis** — RSI, MACD crossover, EMA 5/10/20, Bollinger Bands, ATR, Candlestick patterns (Engulfing, Hammer, Shooting Star, Doji), Support/Resistance zones, Volatility expansion, Wick rejection
-- **Dynamic TP/SL** — 4:1 reward ratio (85%+ signals) / 2.5:1 (75-84% signals) based on real ATR
-- **Zero Fake Signals** — No random signals. Every signal needs minimum 5 confluences + 60% dominance
-- **Trend Filter** — No counter-trend trades, RSI divergence check, EMA20 distance filter
-- **Live Prices** — 9 major/minor currency pairs with real-time bid/ask/spread
-- **Live Charts** — Interactive Recharts with Entry/TP/SL reference lines
-- **Market Watch** — Currency pair cards with change %, spread, favorites
+### ফরেক্স ট্রেডিং
+- **প্রিসিশন সিগন্যাল ইঞ্জিন v3.1-TA** — ৮টি লোকাল + ২০টি এক্সটার্নাল টেকনিক্যাল অ্যানালাইসিস ইন্ডিকেটর (মোট ২৮টি)
+- **মাল্টি-ইন্ডিকেটর বিশ্লেষণ** — RSI, MACD ক্রসওভার, EMA 5/10/20, বলিঞ্জার ব্যান্ড, ATR, ক্যান্ডেলস্টিক প্যাটার্ন (এনগালফিং, হ্যামার, শুটিং স্টার, ডোজি), সাপোর্ট/রেজিস্ট্যান্স জোন, ভোলাটিলিটি এক্সপ্যানশন, উইক রিজেকশন
+- **২০টি এক্সটার্নাল TA ইন্ডিকেটর** — Crypto TA API থেকে: RSI, MACD, ADX, EMA, SMA, WMA, Aroon, UO, Donchian, ROC, MFI, Stochastic, Bollinger Bands, CCI, Standard Deviation, PSAR, Williams %R, TSI, Volume Oscillator
+- **ডাইনামিক TP/SL** — ৯০%+ কনফিডেন্সে ৪.৫:১, ৮৫%+ তে ৪:১, ৭৫-৮৪% তে ২.৫:১ রিওয়ার্ড রেশিও (রিয়েল ATR ভিত্তিক)
+- **জিরো ফেক সিগন্যাল** — কোনো র‍্যান্ডম সিগন্যাল নেই। প্রতিটি সিগন্যালের জন্য ন্যূনতম ৫টি কনফ্লুয়েন্স + ৬০% ডোমিন্যান্স + ৭৫% কনফিডেন্স প্রয়োজন
+- **ক্রস-ইন্ডিকেটর কনফ্লুয়েন্স বোনাস** — ১০টি ইন্ডিকেটর চেক করে, ৬/১০+ মিললে সুপার কনফ্লুয়েন্স বোনাস (+৩.৫)
+- **ট্রেন্ড ফিল্টার** — কাউন্টার-ট্রেন্ড ট্রেড নেই, RSI ডাইভার্জেন্স চেক, EMA20 দূরত্ব ফিল্টার
+- **লাইভ প্রাইস** — ৯টি মেজর/মাইনর কারেন্সি পেয়ারের রিয়েল-টাইম বিড/আস্ক/স্প্রেড
+- **লাইভ চার্ট** — ইন্টারেক্টিভ Recharts সহ Entry/TP/SL রেফারেন্স লাইন
+- **মার্কেট ওয়াচ** — কারেন্সি পেয়ার কার্ড সহ পরিবর্তন %, স্প্রেড, ফেভারিট
 
-### 🔌 LIVE ON/OFF Trading Mode
-- **Master Switch** — Turn ON when trading, OFF when done
-- **Zero API calls when OFF** — Saves free tier limits completely
-- **Persistent** — State saved in localStorage, remembers your choice
-- **Smart Banner** — Clear OFF state UI with "Start Trading" CTA
+### ON/OFF ট্রেডিং মোড
+- **মাস্টার সুইচ** — ট্রেডিং করার সময় ON, শেষ করলে OFF করুন
+- **OFF থাকলে জিরো API কল** — ফ্রি টায়ার লিমিট সম্পূর্ণ সেভ হয়
+- **পার্সিস্টেন্ট** — localStorage-এ সেভ থাকে, ব্রাউজার রিস্টার্ট করলেও মনে রাখে
+- **স্মার্ট ব্যানার** — OFF অবস্থায় পরিষ্কার UI সহ "Start Trading" বাটন
 
-### ⚡ 8-Key Smart API System
-- **4 Twelve Data + 4 Alpha Vantage keys** — 40+ requests/min capacity
-- **Per-key rate limiting** with automatic rotation
-- **Cross-API failover** — If one service exhausts, auto-switches to other
-- **Multi-layer caching** — Candles 5min / Prices 30s / Signals 20s
+### ৮-কী স্মার্ট API সিস্টেম
+- **৪টি Twelve Data + ৪টি Alpha Vantage কী** — ৪০+ রিকোয়েস্ট/মিনিট ক্যাপাসিটি
+- **প্রতি-কী রেট লিমিটিং** স্বয়ংক্রিয় রোটেশন সহ
+- **ক্রস-API ফেইলওভার** — একটি সার্ভিস এক্সহস্ট হলে অন্যটিতে অটো-সুইচ
+- **মাল্টি-লেয়ার ক্যাশিং** — ক্যান্ডেল ৫মি/প্রাইস ৩০সে/TA ইন্ডিকেটর ৫মি/সিগন্যাল ২০সে
 
-### 📅 Economic Calendar
-- **227+ Events** — 8 major currencies (USD, EUR, GBP, JPY, AUD, CAD, CHF, NZD)
-- **Dual Source** — TradingEconomics (primary) + TraderCalendar (fallback) auto failover
-- **Filters** — By currency, impact level (High/Medium/Low), date grouping
-- **Actual Data** — Previous, Forecast, and Actual values with color coding
+### ইকোনমিক ক্যালেন্ডার
+- **২২৭+ ইভেন্ট** — ৮টি মেজর কারেন্সি (USD, EUR, GBP, JPY, AUD, CAD, CHF, NZD)
+- **ডুয়াল সোর্স** — TradingEconomics (প্রাইমারি) + TraderCalendar (ফলব্যাক) অটো ফেইলওভার
+- **ফিল্টার** — কারেন্সি, ইমপ্যাক্ট লেভেল (হাই/মিডিয়াম/লো), তারিখ অনুযায়ী গ্রুপিং
+- **অ্যাকচুয়াল ডেটা** — পূর্ববর্তী, ফোরকাস্ট এবং অ্যাকচুয়াল ভ্যালু কালার কোডিং সহ
 
-### 📰 Market News
-- **Breaking News** — Live forex market news with sentiment analysis
-- **Market Mood** — Real-time market sentiment indicators
+### মার্কেট নিউজ
+- **ব্রেকিং নিউজ** — লাইভ ফরেক্স মার্কেট নিউজ সেন্টিমেন্ট বিশ্লেষণ সহ
+- **মার্কেট মুড** — রিয়েল-টাইম মার্কেট সেন্টিমেন্ট ইন্ডিকেটর
 
-### 📈 Stock Prices
-- **8 Popular Stocks** — AAPL, GOOGL, MSFT, AMZN, TSLA, NVDA, META, NFLX
-- **5 Time Ranges** — 1D, 5D, 1M, YTD, All Time
-- **Interactive Charts** — Canvas-drawn OHLC charts with area fill
-- **Sparklines** — Mini SVG charts on stock list
-- **Search** — Search any US stock ticker
+### স্টক প্রাইস
+- **৮টি জনপ্রিয় স্টক** — AAPL, GOOGL, MSFT, AMZN, TSLA, NVDA, META, NFLX
+- **৫টি টাইম রেঞ্জ** — ১দিন, ৫দিন, ১মাস, YTD, সর্বকাল
+- **ইন্টারেক্টিভ চার্ট** — Canvas-drawn OHLC চার্ট এরিয়া ফিল সহ
+- **সার্চ** — যেকোনো US স্টক টিকার সার্চ করুন
 
-### ₿ Crypto
-- **21 Crypto Signals** — BTC, ETH, SOL, DOGE, and 17 more pairs
-- **Fear & Greed Index** — Circular gauge with gradient color indicator
-- **Funding Rates** — Top rates with mark price and direction
-- **Market Regime** — Volatility, trend, and breakout detection
+### ক্রিপ্টো
+- **২১টি ক্রিপ্টো সিগন্যাল** — BTC, ETH, SOL, DOGE সহ ১৭টি অতিরিক্ত পেয়ার
+- **Fear & Greed ইনডেক্স** — গ্র্যাডিয়েন্ট কালার ইন্ডিকেটর সহ সার্কুলার গেজ
+- **ফান্ডিং রেট** — মার্ক প্রাইস এবং ডিরেকশন সহ টপ রেট
+- **মার্কেট রেজিম** — ভোলাটিলিটি, ট্রেন্ড এবং ব্রেকআউট ডিটেকশন
+- **বিন্যান্স অর্ডার ফ্লো** — রিয়েল-টাইম অর্ডার বুক, ট্রেড ফ্লো, টিকার ডেটা (composite ০-১০০ স্কোর)
+- **ক্রিপ্টোএজ সেন্টিমেন্ট** — ক্রাউডিং স্কোর (contrarian reversal), সেন্টিমেন্ট সিগন্যাল, মার্কেট কনটেক্সট, অ্যালার্ট
 
-### 🎯 Tools & UX
-- **Risk Calculator** — Position size, pip value, risk/reward ratio
-- **Performance Dashboard** — Win rate pie chart, cumulative pips line chart
-- **Dark/Light Theme** — Smooth animated toggle
-- **Auto-Refresh** — Configurable polling (prices 30s, signals 20s)
-- **Notifications** — Browser notifications + Web Audio sound alerts
-- **Favorites** — Star pairs for quick access (persisted in localStorage)
-
----
-
-## 🛠 Tech Stack
-
-| Category | Technology |
-|----------|-----------|
-| Framework | Next.js 16 (App Router) |
-| Language | TypeScript 5 |
-| Styling | Tailwind CSS 4 |
-| UI Components | shadcn/ui (new-york) |
-| Charts | Recharts 2 |
-| State Management | Zustand 5 (persisted) |
-| Animations | Framer Motion 12 |
-| Icons | Lucide React |
-| Fonts | Geist Sans / Geist Mono |
-| APIs | RapidAPI (Twelve Data, Alpha Vantage, TradingEconomics) |
-| Deployment | Render (Free Tier) |
+### টুলস ও UX
+- **রিস্ক ক্যালকুলেটর** — পজিশন সাইজ, পিপ ভ্যালু, রিস্ক/রিওয়ার্ড রেশিও
+- **পারফরম্যান্স ড্যাশবোর্ড** — উইন রেট পাই চার্ট, কুমুলেটিভ পিপস লাইন চার্ট
+- **ডার্ক/লাইট থিম** — স্মুথ অ্যানিমেটেড টগল
+- **অটো-রিফ্রেশ** — কনফিগারেবল পোলিং (প্রাইস ৩০সে, সিগন্যাল ২০সে)
+- **নোটিফিকেশন** — ব্রাউজার নোটিফিকেশন + Web Audio সাউন্ড অ্যালার্ট
+- **ফেভারিটস** — পেয়ার স্টার করে দ্রুত অ্যাক্সেস (localStorage-এ সেভ)
 
 ---
 
-## 📁 Project Structure
+## টেক স্ট্যাক
+
+| ক্যাটাগরি | প্রযুক্তি |
+|-----------|-----------|
+| ফ্রেমওয়ার্ক | Next.js 16 (App Router) |
+| ভাষা | TypeScript 5 |
+| স্টাইলিং | Tailwind CSS 4 |
+| UI কম্পোনেন্ট | shadcn/ui (new-york) |
+| চার্ট | Recharts 2 |
+| স্টেট ম্যানেজমেন্ট | Zustand 5 (persisted) |
+| অ্যানিমেশন | Framer Motion 12 |
+| আইকন | Lucide React |
+| ফন্ট | Geist Sans / Geist Mono |
+| APIs | RapidAPI (Twelve Data, Alpha Vantage, TradingEconomics, Crypto TA, Binance, CryptoEdge) |
+| ডেপ্লয়মেন্ট | Render (Free Tier) |
+
+---
+
+## প্রজেক্ট স্ট্রাকচার
 
 ```
 src/
 ├── app/
-│   ├── page.tsx                    # Main SPA (10 tabs)
-│   ├── layout.tsx                  # Root layout + theme
+│   ├── page.tsx                    # মেইন SPA (১০টি ট্যাব)
+│   ├── layout.tsx                  # রুট লেআউট + থিম
 │   └── api/
 │       ├── forex/
-│       │   ├── prices/             # Live forex prices (8-key dual-API)
-│       │   ├── signal/             # Precision Signal Engine v2
-│       │   ├── calendar/           # Economic calendar (dual-source)
-│       │   ├── news/               # Market news
-│       │   ├── price-history/      # OHLC chart data
-│       │   ├── indicators/         # RSI, MACD, EMA, etc.
-│       │   └── quote/              # Single pair quote
+│       │   ├── prices/             # লাইভ ফরেক্স প্রাইস (৮-কী ডুয়াল-API)
+│       │   ├── signal/             # প্রিসিশন সিগন্যাল ইঞ্জিন v3.1-TA (২৮টি ইন্ডিকেটর)
+│       │   ├── calendar/           # ইকোনমিক ক্যালেন্ডার (ডুয়াল-সোর্স)
+│       │   ├── news/               # মার্কেট নিউজ
+│       │   ├── price-history/      # OHLC চার্ট ডেটা
+│       │   ├── indicators/         # RSI, MACD, EMA ইত্যাদি
+│       │   ├── market-movers/      # মার্কেট মুভার্স
+│       │   └── quote/              # সিঙ্গেল পেয়ার কোট
 │       ├── stocks/
-│       │   └── prices/             # US stock prices (5 ranges)
+│       │   └── prices/             # US স্টক প্রাইস (৫টি রেঞ্জ)
 │       └── crypto/
-│           ├── signal/             # 21 crypto pair signals
-│           ├── funding-rates/      # Funding rates
-│           ├── fear-greed/         # Fear & Greed index
-│           └── pairs/              # Available pairs
+│           ├── signal/             # ২১টি ক্রিপ্টো পেয়ার সিগন্যাল
+│           ├── funding-rates/      # ফান্ডিং রেট
+│           ├── fear-greed/         # Fear & Greed ইনডেক্স
+│           ├── pairs/              # উপলব্ধ ট্রেডিং পেয়ার
+│           ├── binance/            # বিন্যান্স অর্ডার ফ্লো (depth, trades, ticker)
+│           └── sentiment/          # ক্রিপ্টোএজ সেন্টিমেন্ট (crowding, signals, alerts)
 ├── components/
-│   ├── forex/                      # 9 forex components
-│   ├── stocks/                     # Stock prices component
-│   ├── crypto/                     # Crypto signals component
-│   └── ui/                         # 50+ shadcn/ui components
+│   ├── forex/                      # ৯টি ফরেক্স কম্পোনেন্ট
+│   ├── stocks/                     # স্টক প্রাইস কম্পোনেন্ট
+│   ├── crypto/                     # ক্রিপ্টো সিগন্যাল কম্পোনেন্ট
+│   └── ui/                         # ৫০+ shadcn/ui কম্পোনেন্ট
 ├── stores/
-│   └── forex-store.ts              # Zustand persisted store (trading mode, favorites)
-render.yaml                         # Auto-deploy config for Render
-.env.example                        # Environment variable template
+│   └── forex-store.ts              # Zustand পার্সিস্টেড স্টোর (ট্রেডিং মোড, ফেভারিট)
+render.yaml                         # Render অটো-ডেপ্লয় কনফিগ
+.env.example                        # এনভায়রনমেন্ট ভেরিয়েবল টেমপ্লেট
 ```
 
 ---
 
-## 🚀 Deployment
+## ডেপ্লয়মেন্ট
 
-### Deploy to Render (Recommended)
+### Render-এ ডেপ্লয় (রেকমেন্ডেড)
 
-1. **Fork or clone** this repository
-2. Go to [Render Dashboard](https://dashboard.render.com) → **New** → **Blueprint**
-3. Connect your GitHub repository
-4. `render.yaml` will auto-configure the service
-5. Set **Environment Variables** in the Render dashboard:
+1. **ফর্ক বা ক্লোন** এই রিপোজিটরি
+2. [Render Dashboard](https://dashboard.render.com) যান → **New** → **Blueprint**
+3. আপনার GitHub রিপোজিটরি কানেক্ট করুন
+4. `render.yaml` অটো-কনফিগার করবে
+5. Render ড্যাশবোর্ডে **Environment Variables** সেট করুন:
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `TWELVE_DATA_API_KEY` | Yes | Twelve Data RapidAPI key (Account 1) |
-| `TWELVE_DATA_API_KEY_2` | No | Twelve Data key (Account 2) |
-| `TWELVE_DATA_API_KEY_3` | No | Twelve Data key (Account 3) |
-| `TWELVE_DATA_API_KEY_4` | No | Twelve Data key (Account 4) |
-| `ALPHA_VANTAGE_API_KEY` | Yes | Alpha Vantage RapidAPI key (Account 1) |
-| `ALPHA_VANTAGE_API_KEY_2` | No | Alpha Vantage key (Account 2) |
-| `ALPHA_VANTAGE_API_KEY_3` | No | Alpha Vantage key (Account 3) |
-| `ALPHA_VANTAGE_API_KEY_4` | No | Alpha Vantage key (Account 4) |
-| `BREAKING_NEWS_API_KEY` | No | Breaking News API key |
-| `TRADEDECONOMICS_API_KEY` | No | TradingEconomics Calendar API key |
-| `STOCK_PRICES_API_KEY` | No | Stock Prices API key |
-| `SELFTRADE_API_KEY` | No | SelfTrade Crypto API key |
+| ভেরিয়েবল | প্রয়োজনীয় | বর্ণনা |
+|-----------|-----------|--------|
+| `TWELVE_DATA_API_KEY` | হ্যাঁ | Twelve Data RapidAPI কী (অ্যাকাউন্ট ১) |
+| `TWELVE_DATA_API_KEY_2` | না | Twelve Data কী (অ্যাকাউন্ট ২) |
+| `TWELVE_DATA_API_KEY_3` | না | Twelve Data কী (অ্যাকাউন্ট ৩) |
+| `TWELVE_DATA_API_KEY_4` | না | Twelve Data কী (অ্যাকাউন্ট ৪) |
+| `ALPHA_VANTAGE_API_KEY` | হ্যাঁ | Alpha Vantage RapidAPI কী (অ্যাকাউন্ট ১) |
+| `ALPHA_VANTAGE_API_KEY_2` | না | Alpha Vantage কী (অ্যাকাউন্ট ২) |
+| `ALPHA_VANTAGE_API_KEY_3` | না | Alpha Vantage কী (অ্যাকাউন্ট ৩) |
+| `ALPHA_VANTAGE_API_KEY_4` | না | Alpha Vantage কী (অ্যাকাউন্ট ৪) |
+| `BREAKING_NEWS_API_KEY` | না | ব্রেকিং নিউজ API কী |
+| `TRADEDECONOMICS_API_KEY` | না | TradingEconomics ক্যালেন্ডার API কী |
+| `STOCK_PRICES_API_KEY` | না | স্টক প্রাইস API কী |
+| `SELFTRADE_API_KEY` | না | SelfTrade ক্রিপ্টো API কী |
+| `CRYPTO_TA_API_KEY` | না | Crypto TA API কী (২০টি ইন্ডিকেটর) |
+| `BINANCE_API_KEY` | না | বিন্যান্স রিয়েল-টাইম ডেটা API কী |
+| `CRYPTOEDGE_API_KEY` | না | ক্রিপ্টোএজ সেন্টিমেন্ট API কী |
 
-> **Tip:** Minimum 1 TD + 1 AV key needed for signals. More keys = more rate limit capacity (up to 8 keys = 40 req/min).
+> **টিপ:** সিগন্যালের জন্য ন্যূনতম ১টি TD + ১টি AV কী প্রয়োজন। বেশি কী = বেশি রেট লিমিট ক্যাপাসিটি (৮টি কী পর্যন্ত = ৪০ req/min)।
 
-6. Click **Deploy** — your site will be live in ~3 minutes!
+6. **Deploy** ক্লিক করুন — আপনার সাইট ~৩ মিনিটে লাইভ হবে!
 
-### Local Development
+### লোকাল ডেভেলপমেন্ট
 
 ```bash
-# Install dependencies
+# ডিপেন্ডেন্সি ইন্সটল করুন
 npm install
 
-# Copy and fill environment variables
+# এনভায়রনমেন্ট ভেরিয়েবল কপি করুন এবং পূরণ করুন
 cp .env.example .env.local
 
-# Start development server
+# ডেভেলপমেন্ট সার্ভার চালু করুন
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000)
+[http://localhost:3000](http://localhost:3000) ওপেন করুন
 
 ---
 
-## 🔑 API Architecture
+## API আর্কিটেকচার
 
-### 8-Key Smart Rotation System
-- **4 Twelve Data + 4 Alpha Vantage keys** from up to 4 RapidAPI accounts
-- **Round-robin rotation** — each call uses the next available key
-- **Per-key rate limiting** — if a key hits 429, it's cooled down 60s, others continue
-- **Cross-API failover** — if TD exhausts, auto-switches to AV and vice versa
-- **Smart alternation** — even-indexed pairs try AV first, odd try TD first
+### ৮-কী স্মার্ট রোটেশন সিস্টেম
+- **৪টি Twelve Data + ৪টি Alpha Vantage কী** — ৪টি পর্যন্ত RapidAPI অ্যাকাউন্ট থেকে
+- **রাউন্ড-রবিন রোটেশন** — প্রতিটি কল পরবর্তী উপলব্ধ কী ব্যবহার করে
+- **প্রতি-কী রেট লিমিটিং** — কোনো কী ৪২৯ হিট করলে ৬০ সেকেন্ড কুলডাউন, অন্যগুলো চালু থাকে
+- **ক্রস-API ফেইলওভার** — TD এক্সহস্ট হলে AV-তে অটো-সুইচ এবং এর বিপরীতে
+- **স্মার্ট অল্টারনেশন** — জোড় ইনডেক্সের পেয়ার AV আগে চেষ্টা করে, বিজোড় TD আগে
 
-### Multi-Layer Caching Strategy
-| Layer | TTL | Purpose |
+### মাল্টি-লেয়ার ক্যাশিং স্ট্র্যাটেজি
+| লেয়ার | TTL | উদ্দেশ্য |
 |-------|-----|---------|
-| Signal Cache | 20 sec | Same signals shown without re-analysis |
-| Price Cache | 30 sec | Price data reused across requests |
-| Candle Cache | 5 min | Most expensive API calls minimized |
-| LIVE ON/OFF | Manual | Zero API calls when trading mode is OFF |
+| সিগন্যাল ক্যাশ | ২০ সেকেন্ড | পুনরায় বিশ্লেষণ ছাড়া একই সিগন্যাল দেখানো |
+| প্রাইস ক্যাশ | ৩০ সেকেন্ড | প্রাইস ডেটা রিইউজ |
+| ক্যান্ডেল ক্যাশ | ৫ মিনিট | সবচেয়ে ব্যয়বহুল API কল কমানো |
+| TA ইন্ডিকেটর ক্যাশ | ৫ মিনিট | ২০টি এক্সটার্নাল ইন্ডিকেটর ক্যাশ |
+| LIVE ON/OFF | ম্যানুয়াল | ট্রেডিং মোড OFF থাকলে জিরো API কল |
 
-### Dual-Source Calendar
-- **Primary:** TradingEconomics (richer data, 227+ events)
-- **Fallback:** TraderCalendar (auto-activates on TE failure)
-
----
-
-## 📊 API Endpoints
-
-### Forex
-| Endpoint | Description |
-|----------|-------------|
-| `/api/forex/prices` | Live prices for 9 pairs (8-key rotation) |
-| `/api/forex/signal` | Precision Engine v2 signals (8+ indicators) |
-| `/api/forex/calendar` | Economic calendar (dual-source) |
-| `/api/forex/news` | Market news + sentiment |
-| `/api/forex/price-history` | OHLC candle data |
-| `/api/forex/indicators` | Technical indicators (RSI, MACD, etc.) |
-
-### Stocks
-| Endpoint | Description |
-|----------|-------------|
-| `/api/stocks/prices?ticker=AAPL&range=5d` | Stock price data (1d/5d/1mo/ytd/max) |
-| `/api/stocks/prices?action=popular` | 8 popular stocks summary |
-
-### Crypto
-| Endpoint | Description |
-|----------|-------------|
-| `/api/crypto/signal?action=all` | 21 crypto pair signals |
-| `/api/crypto/fear-greed` | Fear & Greed Index |
-| `/api/crypto/funding-rates` | Top funding rates |
-| `/api/crypto/pairs` | Available trading pairs |
+### সিগন্যাল ইঞ্জিন v3.1-TA আর্কিটেকচার
+- **লোকাল চেক (৮টি):** ক্যান্ডেলস্টিক প্যাটার্ন, EMA ক্রসওভার, RSI, MACD, বলিঞ্জার ব্যান্ড, ATR, সাপোর্ট/রেজিস্ট্যান্স, ভোলাটিলিটি
+- **এক্সটার্নাল TA চেক (২০টি):** RSI, MACD, ADX, EMA, SMA, WMA, Aroon, UO, Donchian, ROC, MFI, Stochastic, Bollinger, CCI, SD, PSAR, Williams %R, TSI, Volume Oscillator, Price/Volume
+- **কনফ্লুয়েন্স সিস্টেম:** ১০টি ইন্ডিকেটর কাউন্ট করে — ৬/১০+ = +৩.৫ বোনাস, ৫/১০ = +২.৫, ৪/১০ = +১.৫
+- **ডাইনামিক TP/SL:** ৯০%+ কনফিডেন্সে ৪.৫:১, ৮৫%+ তে ৪:১, ৭৫-৮৪% তে ২.৫:১
 
 ---
 
-## 📝 License
+## API এন্ডপয়েন্ট
 
-This project is developed by **nayondev**. All rights reserved.
+### ফরেক্স
+| এন্ডপয়েন্ট | বর্ণনা |
+|-----------|--------|
+| `/api/forex/prices` | ৯টি পেয়ারের লাইভ প্রাইস (৮-কী রোটেশন) |
+| `/api/forex/signal` | প্রিসিশন ইঞ্জিন v3.1-TA সিগন্যাল (২৮টি ইন্ডিকেটর) |
+| `/api/forex/calendar` | ইকোনমিক ক্যালেন্ডার (ডুয়াল-সোর্স) |
+| `/api/forex/news` | মার্কেট নিউজ + সেন্টিমেন্ট |
+| `/api/forex/price-history` | OHLC ক্যান্ডেল ডেটা |
+| `/api/forex/indicators` | টেকনিক্যাল ইন্ডিকেটর (RSI, MACD ইত্যাদি) |
+| `/api/forex/market-movers` | মার্কেট মুভার্স |
+
+### স্টক
+| এন্ডপয়েন্ট | বর্ণনা |
+|-----------|--------|
+| `/api/stocks/prices?ticker=AAPL&range=5d` | স্টক প্রাইস ডেটা (1d/5d/1mo/ytd/max) |
+| `/api/stocks/prices?action=popular` | ৮টি জনপ্রিয় স্টকের সারাংশ |
+
+### ক্রিপ্টো
+| এন্ডপয়েন্ট | বর্ণনা |
+|-----------|--------|
+| `/api/crypto/signal?action=all` | ২১টি ক্রিপ্টো পেয়ার সিগন্যাল |
+| `/api/crypto/fear-greed` | Fear & Greed ইনডেক্স |
+| `/api/crypto/funding-rates` | টপ ফান্ডিং রেট |
+| `/api/crypto/pairs` | উপলব্ধ ট্রেডিং পেয়ার |
+| `/api/crypto/binance?symbol=BTCUSDT&action=all` | বিন্যান্স অর্ডার ফ্লো (depth, trades, ticker, book) |
+| `/api/crypto/sentiment?symbol=BTC&action=all` | ক্রিপ্টোএজ সেন্টিমেন্ট (crowding, signals, alerts, context) |
+
+---
+
+## লাইসেন্স
+
+এই প্রজেক্টটি **nayondev** দ্বারা ডেভেলপ করা হয়েছে। সর্বস্বত্ব সংরক্ষিত।
 
 ---
 
 <div align="center">
 
-**ForexPro Signals** — Real-time trading intelligence at your fingertips
+**ForexPro Signals** — আপনার আঙুলের টিপে রিয়েল-টাইম ট্রেডিং ইন্টেলিজেন্স
 
-Made with 💚 by [nayondev](https://github.com/nayondev0x)
+**nayondev** দ্বারা তৈরি
 
 </div>

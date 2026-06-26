@@ -68,3 +68,7 @@ services:
         sync: false
       - key: BINANCE_API_HOST
         value: real-time-binance-data.p.rapidapi.com
+      - key: CRYPTOEDGE_API_KEY
+        sync: false
+      - key: CRYPTOEDGE_API_HOST
+        value: cryptoedge-market-sentiment-indicators.p.rapidapi.com
