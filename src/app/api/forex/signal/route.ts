@@ -156,21 +156,39 @@ async function fetchCandles(from: string, to: string) {
   })).filter((x) => x.c > 0);
 }
 
+/* ─── ATR Calculator ─── */
+function calcATR(candles: any[], pair: string, price: number): number {
+  if (candles.length >= 5) {
+    const trs = candles.slice(0, 10).map((c) => {
+      const tr = c.h - c.l;
+      const prev = candles.length > 1 ? candles[candles.indexOf(c) + 1]?.c || c.o : c.o;
+      return Math.max(tr, Math.abs(c.h - prev), Math.abs(c.l - prev));
+    });
+    const realATR = trs.reduce((a, b) => a + b, 0) / trs.length;
+    if (realATR > 0) return realATR;
+  }
+  // Fallback ATR based on pair volatility
+  if (pair.includes("XAU")) return price * 0.004;      // Gold: ~$8-10 range
+  if (pair.includes("JPY")) return price * 0.0035;     // JPY pairs: ~0.65 range
+  if (pair.includes("GBP")) return price * 0.003;      // GBP volatile: ~35 pips
+  return price * 0.0025;                                // Default: ~28 pips for EUR/USD
+}
+
 /* ─── Analysis Engine ─── */
 function analyze(pair: string, price: number, candles: any[], src: string, key: string) {
   const dec = pair.includes("XAU") || pair.includes("JPY") ? 2 : 4;
+  const atr = calcATR(candles, pair, price);
 
   if (candles.length < 3) {
     const type = Math.random() > 0.5 ? "BUY" : "SELL";
-    const atr = price * (pair.includes("XAU") ? 0.0015 : pair.includes("JPY") ? 0.0008 : 0.0008);
     return {
       id: `SIG-${Date.now().toString(36).toUpperCase()}-${pair.replace("/", "")}`, pair, type,
       entry: +price.toFixed(dec),
-      tp: +(type === "BUY" ? price + atr * 2.5 : price - atr * 2.5).toFixed(dec),
-      sl: +(type === "BUY" ? price - atr * 1.5 : price + atr * 1.5).toFixed(dec),
+      tp: +(type === "BUY" ? price + atr * 3 : price - atr * 3).toFixed(dec),
+      sl: +(type === "BUY" ? price - atr * 1 : price + atr * 1).toFixed(dec),
       timestamp: new Date().toISOString(), status: "ACTIVE", confidence: 70,
       reasoning: [type === "BUY" ? "Price momentum up" : "Price momentum down"],
-      indicators: { Price: price.toFixed(dec) },
+      indicators: { Price: price.toFixed(dec), ATR: atr.toFixed(dec) },
       source: "RapidAPI", apiSource: src, apiKey: key,
     };
   }
@@ -222,16 +240,20 @@ function analyze(pair: string, price: number, candles: any[], src: string, key: 
 
   const type = buy > sell ? "BUY" : "SELL";
   const conf = Math.min(Math.round((win / total) * 100), 95);
-  const atr = price * (pair.includes("XAU") ? 0.0015 : pair.includes("JPY") ? 0.0008 : 0.0008);
+
+  // Dynamic TP/SL based on signal strength
+  const strength = win / total; // 0.5 to 1.0
+  const tpMult = strength >= 0.7 ? 3.5 : 3;    // Strong signal → bigger TP
+  const slMult = strength >= 0.7 ? 1.2 : 1.5;   // Strong signal → tighter SL
 
   return {
     id: `SIG-${Date.now().toString(36).toUpperCase()}-${pair.replace("/", "")}-${Math.random().toString(36).substring(2, 4)}`,
     pair, type,
     entry: +price.toFixed(dec),
-    tp: +(type === "BUY" ? price + atr * 2.5 : price - atr * 2.5).toFixed(dec),
-    sl: +(type === "BUY" ? price - atr * 1.5 : price + atr * 1.5).toFixed(dec),
+    tp: +(type === "BUY" ? price + atr * tpMult : price - atr * tpMult).toFixed(dec),
+    sl: +(type === "BUY" ? price - atr * slMult : price + atr * slMult).toFixed(dec),
     timestamp: new Date().toISOString(), status: "ACTIVE", confidence: conf,
-    reasoning: reasons, indicators: ind,
+    reasoning: reasons, indicators: { ...ind, ATR: atr.toFixed(dec) },
     source: "RapidAPI", apiSource: src, apiKey: key,
   };
 }
