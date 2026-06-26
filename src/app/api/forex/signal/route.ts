@@ -490,12 +490,29 @@ function calcRSI(candles: any[], period = 14): number {
 }
 
 function calcMACD(candles: any[]): { macd: number; signal: number; histogram: number } | null {
-  if (candles.length < 26) return null;
+  if (candles.length < 35) return null;
   const closes = candles.map(c => c.c).reverse();
   const ema12 = calcEMA(closes, 12);
   const ema26 = calcEMA(closes, 26);
   const macdLine = ema12 - ema26;
-  return { macd: macdLine, signal: macdLine * 0.8, histogram: macdLine * 0.2 };
+
+  // Calculate proper 9-period EMA signal line from historical MACD values
+  const macdHistory: number[] = [];
+  for (let offset = 1; offset <= Math.min(candles.length - 26, 35); offset++) {
+    const subCloses = candles.slice(offset).map(c => c.c).reverse();
+    if (subCloses.length >= 26) {
+      const e12 = calcEMA(subCloses, 12);
+      const e26 = calcEMA(subCloses, 26);
+      macdHistory.push(e12 - e26);
+    }
+  }
+  macdHistory.reverse(); // oldest first
+  macdHistory.push(macdLine); // current last
+
+  const signalLine = macdHistory.length >= 9 ? calcEMA(macdHistory, 9) : macdLine * 0.8;
+  const histogram = macdLine - signalLine;
+
+  return { macd: macdLine, signal: signalLine, histogram };
 }
 
 function analyzeWithTA(pair: string, price: number, candles: any[], ta: TAIndicator | null, src: string, key: string) {
@@ -579,10 +596,26 @@ function analyzeWithTA(pair: string, price: number, candles: any[], ta: TAIndica
   if (c0.c > c1.c && c1.c > c2.c && c2.c > c3.c) { buy += 2; reasons.push("4-bar bullish momentum"); }
   else if (c0.c < c1.c && c1.c < c2.c && c2.c < c3.c) { sell += 2; reasons.push("4-bar bearish momentum"); }
 
-  // ─── 6. SUPPORT / RESISTANCE ───
-  const lookback = Math.min(candles.length, 15);
-  const hs = candles.slice(0, lookback).map((x) => x.h);
-  const ls = candles.slice(0, lookback).map((x) => x.l);
+  // ─── 6. SUPPORT / RESISTANCE (swing high/low based) ───
+  const lookback = Math.min(candles.length, 20);
+  const swingHighs: number[] = [];
+  const swingLows: number[] = [];
+  for (let i = 2; i < lookback - 2; i++) {
+    const c = candles[i];
+    const prev = candles[i + 1], prev2 = candles[i + 2];
+    const next = candles[i - 1], next2 = candles[i - 2];
+    // Swing high: current high > neighbors on both sides
+    if (c.h > prev.h && c.h > prev2.h && c.h > next.h && c.h > next2.h) {
+      swingHighs.push(c.h);
+    }
+    // Swing low: current low < neighbors on both sides
+    if (c.l < prev.l && c.l < prev2.l && c.l < next.l && c.l < next2.l) {
+      swingLows.push(c.l);
+    }
+  }
+  // Fallback to simple min/max if no swings found
+  const hs = swingHighs.length > 0 ? swingHighs : candles.slice(0, lookback).map((x) => x.h);
+  const ls = swingLows.length > 0 ? swingLows : candles.slice(0, lookback).map((x) => x.l);
   const res = Math.max(...hs), sup = Math.min(...ls);
   ind.Resist = res.toFixed(dec);
   ind.Support = sup.toFixed(dec);
@@ -611,6 +644,23 @@ function analyzeWithTA(pair: string, price: number, candles: any[], ta: TAIndica
     const upperWick = c0.h - Math.max(c0.o, c0.c);
     if (lowerWick > range * 0.6) { buy += 1.5; reasons.push("Lower wick rejection"); }
     if (upperWick > range * 0.6) { sell += 1.5; reasons.push("Upper wick rejection"); }
+  }
+
+  // ─── 9. RSI DIVERGENCE (real: price vs RSI direction mismatch) ───
+  if (candles.length >= 20) {
+    const recentHigh = Math.max(c0.h, c1.h, c2.h, c3.h, c4.h);
+    const oldCandles = candles.slice(5, 15);
+    const oldHigh = Math.max(...oldCandles.map(c => c.h));
+    const recentLow = Math.min(c0.l, c1.l, c2.l, c3.l, c4.l);
+    const oldLow = Math.min(...oldCandles.map(c => c.l));
+
+    if (recentHigh > oldHigh && rsi < 55) {
+      // Price made higher high but RSI didn't confirm — bearish divergence
+      sell += 3; reasons.push(`Bearish RSI divergence (price high, RSI ${rsi})`);
+    } else if (recentLow < oldLow && rsi > 45) {
+      // Price made lower low but RSI didn't confirm — bullish divergence
+      buy += 3; reasons.push(`Bullish RSI divergence (price low, RSI ${rsi})`);
+    }
   }
 
   // ═══════════════════════════════════════════
@@ -757,11 +807,9 @@ function analyzeWithTA(pair: string, price: number, candles: any[], ta: TAIndica
       else if (ta.mfi > 70) { sell += 1; }
     }
 
-    // ─── TA-12: EMA 14 (external) — trend direction ───
+    // ─── TA-12: EMA 14 (external) — trend direction (informational only, no score)
     if (ta.ema14 !== undefined) {
       ind.TA_EMA14 = ta.ema14.toFixed(dec);
-      if (price > ta.ema14) { buy += 0.5; }
-      else { sell += 0.5; }
     }
 
     // ─── TA-13: SMA 14 vs EMA 14 — momentum alignment ───
@@ -772,11 +820,9 @@ function analyzeWithTA(pair: string, price: number, candles: any[], ta: TAIndica
       else { sell += 1; reasons.push("TA-EMA14 < SMA14 bearish"); }
     }
 
-    // ─── TA-14: WMA 14 — weighted trend ───
+    // ─── TA-14: WMA 14 — informational only, no score (always fires) ───
     if (ta.wma14 !== undefined) {
       ind.TA_WMA14 = ta.wma14.toFixed(dec);
-      if (price > ta.wma14) { buy += 0.5; }
-      else { sell += 0.5; }
     }
 
     // ─── TA-15: Standard Deviation — volatility measure ───
@@ -842,17 +888,17 @@ function analyzeWithTA(pair: string, price: number, candles: any[], ta: TAIndica
       else if (ta.tsi.tsi < 0 && ta.tsi.signal > 0) { sell += 2; reasons.push("TA-TSI bearish zero cross"); }
     }
 
-    // ─── TA-19: Volume Oscillator — volume trend ───
+    // ─── TA-19: Volume Oscillator — only confirms existing direction ───
     if (ta.volOsc !== undefined) {
       ind.TA_VolOsc = ta.volOsc;
       if (ta.volOsc > 0) {
-        // Short MA > Long MA = increasing volume — confirms trend
-        if (buy > sell) { buy += 1; reasons.push(`TA-VolOsc rising volume confirms buy (${ta.volOsc})`); }
-        else { sell += 1; reasons.push(`TA-VolOsc rising volume confirms sell (${ta.volOsc})`); }
-      } else if (ta.volOsc < -5) {
-        // Declining volume — weakens signal (no bonus, just note)
-        reasons.push(`TA-VolOsc declining volume (${ta.volOsc})`);
+        // Rising volume = market conviction — but only add to the TREND direction
+        // Use PSAR or ADX to determine actual trend
+        const trendUp = ta.psar ? ta.psar.sar < price : (ta.adx ? ta.adx.plusDi > ta.adx.minusDi : buy > sell);
+        if (trendUp && buy > sell) { buy += 1; reasons.push(`TA-VolOsc rising vol confirms uptrend (${ta.volOsc})`); }
+        else if (!trendUp && sell > buy) { sell += 1; reasons.push(`TA-VolOsc rising vol confirms downtrend (${ta.volOsc})`); }
       }
+      // Declining volume = weak signal — no bonus (correct)
     }
 
     // ═══ CROSS-INDICATOR CONFLUENCE BONUSES ═══
@@ -886,36 +932,42 @@ function analyzeWithTA(pair: string, price: number, candles: any[], ta: TAIndica
   const total = buy + sell;
   const win = Math.max(buy, sell);
 
-  // STRICT FILTERS — minimum 5 confluences, 60% dominance
-  if (win < 5 || total < 5) return null;
-  if (win / total < 0.6) return null;
+  // STRICTER FILTERS — higher quality signals only
+  // Minimum 7 confluences (was 5), 65% dominance (was 60%)
+  if (win < 7 || total < 7) return null;
+  if (win / total < 0.65) return null;
 
   const type = buy > sell ? "BUY" : "SELL";
 
-  // Trend alignment check
+  // Trend alignment: don't trade against strong trend
   if (candles.length >= 15) {
     const distFromEMA20 = Math.abs(c0.c - ema20) / atr;
-    if (distFromEMA20 > 3) return null;
+    if (distFromEMA20 > 3) return null; // Too far from trend — mean reversion zone
   }
 
-  // RSI divergence check
+  // RSI sanity: don't buy overbought, don't sell oversold
   if (type === "BUY" && rsi > 75) return null;
   if (type === "SELL" && rsi < 25) return null;
 
-  // TA RSI divergence check (if available)
+  // TA RSI extra safety
   if (ta?.rsi !== undefined) {
     if (type === "BUY" && ta.rsi > 78) return null;
     if (type === "SELL" && ta.rsi < 22) return null;
   }
 
-  // Confidence calculation
-  const rawConf = (win / total) * 100;
-  const confBonus = Math.min((win - 5) * 2, 12);
-  // Extra bonus when TA data is available and agrees
-  const taBonus = ta ? 3 : 0;
-  const conf = Math.min(Math.round(rawConf + confBonus + taBonus), 98);
+  // ADX trend requirement: if ADX available, need some trend
+  if (ta?.adx && ta.adx.adx < 15) return null; // No trend = no trade
 
-  if (conf < 75) return null;
+  // Confidence: more realistic calculation
+  const rawConf = (win / total) * 100;
+  // Bonus scales with number of confluences beyond minimum
+  const confBonus = Math.min((win - 7) * 1.5, 8);
+  // TA data bonus (but smaller)
+  const taBonus = ta ? 2 : 0;
+  const conf = Math.min(Math.round(rawConf + confBonus + taBonus), 95);
+
+  // Minimum confidence 80% (was 75%)
+  if (conf < 80) return null;
 
   // ═══ 5-MIN SCALPING TP/SL ═══
   // 5-minute trade duration: TP must be reachable within 1-3 candles
