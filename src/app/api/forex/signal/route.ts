@@ -1,15 +1,16 @@
 import { NextResponse } from "next/server";
 
 /* ═══════════════════════════════════════════════════════════
-   PRECISION SIGNAL ENGINE v3.1 — ULTRA MAX ACCURACY
+   PRECISION SIGNAL ENGINE v3.1-TA — 5-MIN SCALPING MODE
    - 8+ local indicators (candlestick, EMA, RSI, MACD, etc.)
    - 20 external Crypto TA API indicators (RSI, MACD, ADX,
      Bollinger, Stochastic, CCI, Aroon, UO, Donchian, ROC,
      MFI, SMA, WMA, EMA, SD, PSAR, Williams %R, TSI,
-     Volume Oscillator, Price, Volume)
+     Volume Oscillator, Price, Volume) — all on 5min timeframe
    - Multi-indicator confluence (15+ confirmations)
-   - Real ATR from candle data
-   - Dynamic TP/SL with trend-aligned entries
+   - Real ATR from 5min candles
+   - 5-MIN SCALPING TP/SL: TP 1-1.5x ATR, SL 0.5-0.7x ATR
+   - Every trade targets ~5 min duration
    - Multi-layer caching (prices 30s, candles 5min, TA 5min)
    ═══════════════════════════════════════════════════════════ */
 
@@ -147,7 +148,7 @@ function pairToTASymbol(from: string, to: string): string {
 async function fetchTAIndicator(symbol: string, endpoint: string, params: string = ""): Promise<any> {
   if (!CRYPTO_TA_KEY) return null;
   try {
-    const url = `https://${CRYPTO_TA_HOST}/${endpoint}?symbol=${symbol}&timeframe=1d${params ? "&" + params : ""}`;
+    const url = `https://${CRYPTO_TA_HOST}/${endpoint}?symbol=${symbol}&timeframe=5min${params ? "&" + params : ""}`;
     const res = await fetch(url, {
       headers: {
         "x-rapidapi-key": CRYPTO_TA_KEY,
@@ -916,14 +917,15 @@ function analyzeWithTA(pair: string, price: number, candles: any[], ta: TAIndica
 
   if (conf < 75) return null;
 
-  // ═══ DYNAMIC TP/SL ═══
-  // Ultra signal (90%+): TP 4.5x ATR, SL 1x ATR → 4.5:1 reward
-  // Strong signal (85%+): TP 4x ATR, SL 1x ATR → 4:1 reward
-  // Medium signal (75-84%): TP 3x ATR, SL 1.2x ATR → 2.5:1 reward
+  // ═══ 5-MIN SCALPING TP/SL ═══
+  // 5-minute trade duration: TP must be reachable within 1-3 candles
+  // Ultra signal (90%+): TP 1.5x ATR, SL 0.5x ATR → 3:1 reward (avg ~5min)
+  // Strong signal (85%+): TP 1.2x ATR, SL 0.5x ATR → 2.4:1 reward (avg ~4min)
+  // Medium signal (75-84%): TP 1x ATR, SL 0.7x ATR → 1.5:1 reward (avg ~5min)
   let tpMult: number, slMult: number;
-  if (conf >= 90) { tpMult = 4.5; slMult = 1; }
-  else if (conf >= 85) { tpMult = 4; slMult = 1; }
-  else { tpMult = 3; slMult = 1.2; }
+  if (conf >= 90) { tpMult = 1.5; slMult = 0.5; }
+  else if (conf >= 85) { tpMult = 1.2; slMult = 0.5; }
+  else { tpMult = 1.0; slMult = 0.7; }
 
   const finalTP = type === "BUY" ? price + atr * tpMult : price - atr * tpMult;
   const finalSL = type === "BUY" ? price - atr * slMult : price + atr * slMult;
@@ -943,6 +945,9 @@ function analyzeWithTA(pair: string, price: number, candles: any[], ta: TAIndica
     apiSource: src,
     apiKey: key,
     engineVersion: "v3.1-TA",
+    tradeDuration: "5min",
+    tpPips: Math.abs(finalTP - price),
+    slPips: Math.abs(price - finalSL),
   };
 }
 

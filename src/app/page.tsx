@@ -31,6 +31,8 @@ interface ForexSignal {
   pips?: number; confidence?: number; reasoning?: string[];
   indicators?: Record<string, string | number>; source?: string;
   apiSource?: string; apiKey?: string;
+  tradeDuration?: string; tpPips?: number; slPips?: number;
+  engineVersion?: string;
 }
 interface PriceData {
   pair: string; bid: number; ask: number; spread: number;
@@ -189,8 +191,8 @@ function SignalCard({ signal, isNew, onClick }: { signal: ForexSignal; isNew?: b
         </div>
         <div className="mb-2 grid grid-cols-3 gap-2">
           <div className="rounded-lg bg-background/60 p-2"><p className="text-[10px] uppercase tracking-wider text-muted-foreground">Entry</p><p className="font-mono text-sm font-bold text-foreground">{formatPrice(signal.entry, signal.pair)}</p></div>
-          <div className="rounded-lg bg-emerald-500/10 p-2"><p className="text-[10px] uppercase tracking-wider text-emerald-500/70">Take Profit</p><p className="font-mono text-sm font-bold text-emerald-500">{formatPrice(signal.tp, signal.pair)}</p></div>
-          <div className="rounded-lg bg-rose-500/10 p-2"><p className="text-[10px] uppercase tracking-wider text-rose-500/70">Stop Loss</p><p className="font-mono text-sm font-bold text-rose-500">{formatPrice(signal.sl, signal.pair)}</p></div>
+          <div className="rounded-lg bg-emerald-500/10 p-2"><p className="text-[10px] uppercase tracking-wider text-emerald-500/70">TP <span className="text-[8px] text-emerald-500/40">({signal.tpPips ? formatPrice(signal.tpPips, signal.pair) : "--"})</span></p><p className="font-mono text-sm font-bold text-emerald-500">{formatPrice(signal.tp, signal.pair)}</p></div>
+          <div className="rounded-lg bg-rose-500/10 p-2"><p className="text-[10px] uppercase tracking-wider text-rose-500/70">SL <span className="text-[8px] text-rose-500/40">({signal.slPips ? formatPrice(signal.slPips, signal.pair) : "--"})</span></p><p className="font-mono text-sm font-bold text-rose-500">{formatPrice(signal.sl, signal.pair)}</p></div>
         </div>
         {signal.reasoning && signal.reasoning.length > 0 && (
           <div className="mb-2 rounded-lg bg-background/40 p-2">
@@ -200,7 +202,10 @@ function SignalCard({ signal, isNew, onClick }: { signal: ForexSignal; isNew?: b
         )}
         <IndicatorsPanel indicators={signal.indicators} />
         <div className="mt-3 flex items-center justify-between border-t border-border/20 pt-2">
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><Clock className="h-3 w-3" />{formatTime(signal.timestamp)}</div>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><Clock className="h-3 w-3" />{formatTime(signal.timestamp)}</div>
+            {signal.tradeDuration && (<Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/10 text-[9px] font-bold text-cyan-400"><Radio className="mr-1 h-2.5 w-2.5" />{signal.tradeDuration}</Badge>)}
+          </div>
           {!isActive && signal.pips !== undefined ? (
             <Badge variant="outline" className={`text-xs font-bold ${signal.pips > 0 ? "border-emerald-500/30 text-emerald-500" : "border-rose-500/30 text-rose-500"}`}>{signal.pips > 0 ? "+" : ""}{signal.pips} pips</Badge>
           ) : isActive ? (<div className="flex items-center gap-1.5"><PulseDot color="bg-emerald-400" /><span className="text-xs font-medium text-emerald-500">LIVE</span></div>) : null}
