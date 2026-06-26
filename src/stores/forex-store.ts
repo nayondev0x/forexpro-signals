@@ -11,6 +11,8 @@ interface ForexStore {
   setActiveTab: (tab: string) => void;
   autoRefresh: boolean;
   setAutoRefresh: (v: boolean) => void;
+  tradingMode: boolean;
+  setTradingMode: (v: boolean) => void;
   notificationsEnabled: boolean;
   setNotificationsEnabled: (v: boolean) => void;
   soundEnabled: boolean;
@@ -34,6 +36,8 @@ export const useForexStore = create<ForexStore>()(
       setActiveTab: (tab: string) => set({ activeTab: tab }),
       autoRefresh: true,
       setAutoRefresh: (v: boolean) => set({ autoRefresh: v }),
+      tradingMode: false,
+      setTradingMode: (v: boolean) => set({ tradingMode: v }),
       notificationsEnabled: false,
       setNotificationsEnabled: (v: boolean) => set({ notificationsEnabled: v }),
       soundEnabled: true,
@@ -41,6 +45,6 @@ export const useForexStore = create<ForexStore>()(
       selectedSignalId: null,
       setSelectedSignalId: (id: string | null) => set({ selectedSignalId: id }),
     }),
-    { name: "forex-prefs", partialize: (s) => ({ favorites: s.favorites, autoRefresh: s.autoRefresh, notificationsEnabled: s.notificationsEnabled, soundEnabled: s.soundEnabled, selectedPair: s.selectedPair, activeTab: s.activeTab }) }
+    { name: "forex-prefs", partialize: (s) => ({ favorites: s.favorites, autoRefresh: s.autoRefresh, tradingMode: s.tradingMode, notificationsEnabled: s.notificationsEnabled, soundEnabled: s.soundEnabled, selectedPair: s.selectedPair, activeTab: s.activeTab }) }
   )
 );

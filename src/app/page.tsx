@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { TrendingUp, TrendingDown, Activity, Target, ShieldAlert, Clock, Zap, BarChart3, Trophy, ArrowUpRight, ArrowDownRight, Signal, Wifi, WifiOff, RefreshCw, Brain, Gauge, Star, ChevronDown, ChevronUp, X, Newspaper, LineChart, Bitcoin } from "lucide-react";
+import { TrendingUp, TrendingDown, Activity, Target, ShieldAlert, Clock, Zap, BarChart3, Trophy, ArrowUpRight, ArrowDownRight, Signal, Wifi, WifiOff, RefreshCw, Brain, Gauge, Star, ChevronDown, ChevronUp, X, Newspaper, LineChart, Bitcoin, Radio, Power } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -219,7 +220,7 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
-  const { autoRefresh, notificationsEnabled, soundEnabled, selectedPair, setSelectedSignalId, selectedSignalId, favorites, activeTab, setActiveTab } = useForexStore();
+  const { autoRefresh, tradingMode, setTradingMode, notificationsEnabled, soundEnabled, selectedPair, setSelectedSignalId, selectedSignalId, favorites, activeTab, setActiveTab } = useForexStore();
 
   // Filter signals/prices by pair and favorites
   const filteredSignals = signals.filter(s => {
@@ -237,15 +238,8 @@ export default function Home() {
     return true;
   });
 
-  const fetchPrices = useCallback(async () => {
-    try {
-      const r = await fetch("/api/forex/prices");
-      const data = await r.json();
-      if (data.prices) { setPrices(data.prices); setDataSource(data.liveCount >= 5 ? "live" : "partial"); }
-    } catch {}
-  }, []);
-
   const fetchSignals = useCallback(async () => {
+    if (!tradingMode) return;
     try {
       const r = await fetch("/api/forex/signal");
       const data = await r.json();
@@ -256,7 +250,6 @@ export default function Home() {
           if (newOnes.length > 0) {
             setNewSignalId(newOnes[0].id);
             setTimeout(() => setNewSignalId(null), 5000);
-            // Notification
             if (notificationsEnabled) {
               const sig = newOnes[0];
               sendBrowserNotification(`${sig.pair} ${sig.type}`, `Entry: ${sig.entry} | Confidence: ${sig.confidence}%`);
@@ -267,11 +260,21 @@ export default function Home() {
         });
       }
     } catch {}
-  }, [notificationsEnabled, soundEnabled]);
+  }, [notificationsEnabled, soundEnabled, tradingMode]);
 
-  const refreshSignals = async () => { setRefreshing(true); await fetchSignals(); await fetchPrices(); setTimeout(() => setRefreshing(false), 500); };
+  const fetchPrices = useCallback(async () => {
+    if (!tradingMode) return;
+    try {
+      const r = await fetch("/api/forex/prices");
+      const data = await r.json();
+      if (data.prices) { setPrices(data.prices); setDataSource(data.liveCount >= 5 ? "live" : "partial"); }
+    } catch {}
+  }, [tradingMode]);
+
+  const refreshSignals = async () => { if (!tradingMode) return; setRefreshing(true); await fetchSignals(); await fetchPrices(); setTimeout(() => setRefreshing(false), 500); };
 
   useEffect(() => {
+    if (!tradingMode) return;
     const load = async () => { await fetchPrices(); await fetchSignals(); };
     load();
     if (autoRefresh) {
@@ -280,7 +283,7 @@ export default function Home() {
       pollingRef.current = si;
       return () => { clearInterval(pi); clearInterval(si); };
     }
-  }, [fetchPrices, fetchSignals, autoRefresh]);
+  }, [fetchPrices, fetchSignals, autoRefresh, tradingMode]);
 
   const activeSignals = filteredSignals.filter(s => s.status === "ACTIVE");
   const completedSignals = filteredSignals.filter(s => s.status !== "ACTIVE");
@@ -299,8 +302,8 @@ export default function Home() {
           <div className="flex items-center gap-2">
             <ThemeToggle />
             <div className="hidden items-center gap-2 rounded-full border border-border/40 bg-card/80 px-3 py-1.5 sm:flex">
-              <span className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-400" : "bg-rose-400"}`} />
-              <span className="text-xs text-muted-foreground">{connected ? (dataSource === "live" ? "Live" : "Standby") : "Connecting..."}</span>
+              <span className={`h-2 w-2 rounded-full ${tradingMode ? (dataSource === "live" ? "bg-emerald-400" : "bg-amber-400") : "bg-zinc-500"}`} />
+              <span className="text-xs text-muted-foreground">{tradingMode ? (dataSource === "live" ? "Live" : "Standby") : "Off"}</span>
             </div>
           </div>
         </div>
@@ -312,8 +315,29 @@ export default function Home() {
       {/* Controls Bar */}
       <ControlsBar refreshing={refreshing} onRefresh={refreshSignals} signalCount={signals.length} />
 
-      {/* Main Content */}
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6">
+      {/* OFF State Banner */}
+      {!tradingMode && (
+        <div className="flex flex-col items-center justify-center gap-3 py-20 px-4">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-800/80 border border-zinc-700/50">
+            <Power className="h-8 w-8 text-zinc-500" />
+          </div>
+          <h2 className="text-lg font-semibold text-zinc-400">Trading Mode is OFF</h2>
+          <p className="text-sm text-zinc-500 text-center max-w-md">
+            Zero API calls. Free tier is not being used.
+            <br />Turn on <span className="text-emerald-500 font-semibold">LIVE</span> when you&apos;re ready to trade.
+          </p>
+          <Button
+            onClick={() => setTradingMode(true)}
+            className="mt-2 bg-emerald-600 hover:bg-emerald-500 text-white gap-2"
+          >
+            <Radio className="size-4" />
+            Start Trading
+          </Button>
+        </div>
+      )}
+
+      {/* Main Content — only show when trading mode ON */}
+      {tradingMode && <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6">
         <section className="mb-6"><StatsCards signals={signals} dataSource={dataSource} /></section>
         <Separator className="mb-6 bg-border/30" />
 
@@ -458,7 +482,7 @@ export default function Home() {
             <CryptoSignals />
           </TabsContent>
         </Tabs>
-      </main>
+      </main>}
 
       {/* Footer */}
       <footer className="mt-auto border-t border-border/30 bg-card/40 backdrop-blur">

@@ -24,6 +24,8 @@ import {
   VolumeX,
   RefreshCw,
   Filter,
+  Radio,
+  Power,
 } from "lucide-react";
 
 const COMMON_PAIRS = [
@@ -59,6 +61,8 @@ export function ControlsBar({
     isFavorite,
     autoRefresh,
     setAutoRefresh,
+    tradingMode,
+    setTradingMode,
     notificationsEnabled,
     setNotificationsEnabled,
     soundEnabled,
@@ -103,7 +107,7 @@ export function ControlsBar({
         </Select>
       </div>
 
-      {/* Favorites Toggle - applies to current selected pair */}
+      {/* Favorites Toggle */}
       {!showFavoritesOnly && selectedPair !== "ALL" && (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -128,17 +132,45 @@ export function ControlsBar({
         </Tooltip>
       )}
 
-      {/* Auto-refresh Switch */}
-      <div className="flex items-center gap-1.5">
+      {/* ── LIVE TRADING TOGGLE (Master Switch) ── */}
+      <div className={`flex items-center gap-2 rounded-full px-3 py-1 border transition-all duration-300 ${
+        tradingMode
+          ? "border-emerald-500/50 bg-emerald-500/10 shadow-[0_0_8px_rgba(16,185,129,0.15)]"
+          : "border-border/40 bg-card/80"
+      }`}>
         <Switch
-          id="auto-refresh"
-          checked={autoRefresh}
-          onCheckedChange={setAutoRefresh}
+          id="trading-mode"
+          checked={tradingMode}
+          onCheckedChange={setTradingMode}
+          className="data-[state=checked]:bg-emerald-500"
         />
-        <Label htmlFor="auto-refresh" className="text-xs text-muted-foreground cursor-pointer">
-          Auto
+        <Label
+          htmlFor="trading-mode"
+          className={`text-xs font-semibold cursor-pointer flex items-center gap-1.5 transition-colors ${
+            tradingMode ? "text-emerald-500" : "text-muted-foreground"
+          }`}
+        >
+          {tradingMode ? (
+            <><Radio className="size-3.5" /> LIVE</>
+          ) : (
+            <><Power className="size-3.5" /> OFF</>
+          )}
         </Label>
       </div>
+
+      {/* Auto-refresh — only active when trading mode ON */}
+      {tradingMode && (
+        <div className="flex items-center gap-1.5">
+          <Switch
+            id="auto-refresh"
+            checked={autoRefresh}
+            onCheckedChange={setAutoRefresh}
+          />
+          <Label htmlFor="auto-refresh" className="text-xs text-muted-foreground cursor-pointer">
+            Auto
+          </Label>
+        </div>
+      )}
 
       {/* Notification Bell */}
       <Tooltip>
@@ -190,18 +222,27 @@ export function ControlsBar({
         {signalCount} signal{signalCount !== 1 ? "s" : ""}
       </span>
 
-      {/* Analyze Button */}
-      <Button
-        size="sm"
-        onClick={onRefresh}
-        disabled={refreshing}
-        className="gap-1.5"
-      >
-        <RefreshCw
-          className={`size-3.5 ${refreshing ? "animate-spin" : ""}`}
-        />
-        Analyze
-      </Button>
+      {/* Analyze Button — disabled when OFF */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div>
+            <Button
+              size="sm"
+              onClick={onRefresh}
+              disabled={refreshing || !tradingMode}
+              className="gap-1.5"
+            >
+              <RefreshCw
+                className={`size-3.5 ${refreshing ? "animate-spin" : ""}`}
+              />
+              Analyze
+            </Button>
+          </div>
+        </TooltipTrigger>
+        {!tradingMode && (
+          <TooltipContent>Turn on LIVE mode first</TooltipContent>
+        )}
+      </Tooltip>
     </div>
   );
 }
