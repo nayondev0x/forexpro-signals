@@ -16,6 +16,14 @@ services:
         sync: false
       - key: TWELVE_DATA_API_HOST_2
         value: twelve-data1.p.rapidapi.com
+      - key: TWELVE_DATA_API_KEY_3
+        sync: false
+      - key: TWELVE_DATA_API_HOST_3
+        value: twelve-data1.p.rapidapi.com
+      - key: TWELVE_DATA_API_KEY_4
+        sync: false
+      - key: TWELVE_DATA_API_HOST_4
+        value: twelve-data1.p.rapidapi.com
       - key: ALPHA_VANTAGE_API_KEY
         sync: false
       - key: ALPHA_VANTAGE_API_HOST
@@ -23,6 +31,14 @@ services:
       - key: ALPHA_VANTAGE_API_KEY_2
         sync: false
       - key: ALPHA_VANTAGE_API_HOST_2
+        value: alpha-vantage.p.rapidapi.com
+      - key: ALPHA_VANTAGE_API_KEY_3
+        sync: false
+      - key: ALPHA_VANTAGE_API_HOST_3
+        value: alpha-vantage.p.rapidapi.com
+      - key: ALPHA_VANTAGE_API_KEY_4
+        sync: false
+      - key: ALPHA_VANTAGE_API_HOST_4
         value: alpha-vantage.p.rapidapi.com
       - key: TRADER_CALENDAR_API_KEY
         sync: false

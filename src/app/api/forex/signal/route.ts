@@ -24,14 +24,24 @@ class DualApiManager {
   private avIdx = 0;
 
   constructor() {
+    // Twelve Data — up to 4 keys
     if (process.env.TWELVE_DATA_API_KEY)
       this.tdKeys.push({ id: "TD-1", key: process.env.TWELVE_DATA_API_KEY, host: process.env.TWELVE_DATA_API_HOST || "twelve-data1.p.rapidapi.com", service: "TD", limitedUntil: 0, callCount: 0 });
     if (process.env.TWELVE_DATA_API_KEY_2)
       this.tdKeys.push({ id: "TD-2", key: process.env.TWELVE_DATA_API_KEY_2, host: process.env.TWELVE_DATA_API_HOST_2 || "twelve-data1.p.rapidapi.com", service: "TD", limitedUntil: 0, callCount: 0 });
+    if (process.env.TWELVE_DATA_API_KEY_3)
+      this.tdKeys.push({ id: "TD-3", key: process.env.TWELVE_DATA_API_KEY_3, host: process.env.TWELVE_DATA_API_HOST_3 || "twelve-data1.p.rapidapi.com", service: "TD", limitedUntil: 0, callCount: 0 });
+    if (process.env.TWELVE_DATA_API_KEY_4)
+      this.tdKeys.push({ id: "TD-4", key: process.env.TWELVE_DATA_API_KEY_4, host: process.env.TWELVE_DATA_API_HOST_4 || "twelve-data1.p.rapidapi.com", service: "TD", limitedUntil: 0, callCount: 0 });
+    // Alpha Vantage — up to 4 keys
     if (process.env.ALPHA_VANTAGE_API_KEY)
       this.avKeys.push({ id: "AV-1", key: process.env.ALPHA_VANTAGE_API_KEY, host: process.env.ALPHA_VANTAGE_API_HOST || "alpha-vantage.p.rapidapi.com", service: "AV", limitedUntil: 0, callCount: 0 });
     if (process.env.ALPHA_VANTAGE_API_KEY_2)
       this.avKeys.push({ id: "AV-2", key: process.env.ALPHA_VANTAGE_API_KEY_2, host: process.env.ALPHA_VANTAGE_API_HOST_2 || "alpha-vantage.p.rapidapi.com", service: "AV", limitedUntil: 0, callCount: 0 });
+    if (process.env.ALPHA_VANTAGE_API_KEY_3)
+      this.avKeys.push({ id: "AV-3", key: process.env.ALPHA_VANTAGE_API_KEY_3, host: process.env.ALPHA_VANTAGE_API_HOST_3 || "alpha-vantage.p.rapidapi.com", service: "AV", limitedUntil: 0, callCount: 0 });
+    if (process.env.ALPHA_VANTAGE_API_KEY_4)
+      this.avKeys.push({ id: "AV-4", key: process.env.ALPHA_VANTAGE_API_KEY_4, host: process.env.ALPHA_VANTAGE_API_HOST_4 || "alpha-vantage.p.rapidapi.com", service: "AV", limitedUntil: 0, callCount: 0 });
   }
 
   private getNextKey(pool: ApiKey[], idxRef: { value: number }): ApiKey | null {
@@ -51,7 +61,7 @@ class DualApiManager {
   }
 
   async fetchWithFailover(url: string, preferred: "AV" | "TD"): Promise<{ response: Response | null; usedKey: string; usedService: string }> {
-    for (let a = 0; a < 2; a++) {
+    for (let a = 0; a < 4; a++) { // try up to 4 keys before failover
       const k = preferred === "AV" ? this.getAV() : this.getTD();
       if (!k) break;
       try {
