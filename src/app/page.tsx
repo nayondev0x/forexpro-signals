@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
-import { TrendingUp, TrendingDown, Activity, Target, ShieldAlert, Clock, Zap, BarChart3, Trophy, ArrowUpRight, ArrowDownRight, Signal, Wifi, WifiOff, RefreshCw, Brain, Gauge, Star, ChevronDown, ChevronUp, X, Newspaper, LineChart, Bitcoin, Radio, Power, Globe, Flame } from "lucide-react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { TrendingUp, TrendingDown, Activity, Target, ShieldAlert, Clock, Zap, BarChart3, Trophy, ArrowUpRight, ArrowDownRight, Signal, Wifi, WifiOff, RefreshCw, Brain, Gauge, Star, ChevronDown, ChevronUp, X, Newspaper, LineChart, Bitcoin, Radio, Power, Globe, Flame, Timer, ArrowRightLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -58,9 +58,22 @@ const SESSIONS = [
   { name: "London", flag: "🇬🇧", startUTC: 7, endUTC: 16, color: "text-sky-400", bg: "bg-sky-500/20", border: "border-sky-500/30" },
   { name: "New York", flag: "🇺🇸", startUTC: 12, endUTC: 21, color: "text-emerald-400", bg: "bg-emerald-500/20", border: "border-emerald-500/30" },
 ];
+
+function isSessionActive(s: typeof SESSIONS[0], utcH: number): boolean {
+  return s.startUTC < s.endUTC ? (utcH >= s.startUTC && utcH < s.endUTC) : (utcH >= s.startUTC || utcH < s.endUTC);
+}
+
 function getActiveSessions(): typeof SESSIONS {
   const utcH = new Date().getUTCHours();
-  return SESSIONS.filter(s => s.startUTC < s.endUTC ? (utcH >= s.startUTC && utcH < s.endUTC) : (utcH >= s.startUTC || utcH < s.endUTC));
+  return SESSIONS.filter(s => isSessionActive(s, utcH));
+}
+
+function getSessionAtTime(iso: string): string {
+  const utcH = new Date(iso).getUTCHours();
+  for (const s of SESSIONS) {
+    if (isSessionActive(s, utcH)) return s.name;
+  }
+  return "Off-hours";
 }
 
 /* ─ Session Bar ─*/
@@ -87,29 +100,123 @@ function SessionBar() {
   );
 }
 
-/* ─ Currency Strength Heatmap ─*/
+/* ─ Countdown Timer (for 5-min trade duration) ─*/
+function CountdownTimer({ signalTimestamp, durationSec = 300 }: { signalTimestamp: string; durationSec?: number }) {
+  const [elapsed, setElapsed] = useState(0);
+  const startTime = useRef(Math.floor(new Date(signalTimestamp).getTime() / 1000));
+
+  useEffect(() => {
+    const iv = setInterval(() => {
+      setElapsed(Math.floor(Date.now() / 1000) - startTime.current);
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [signalTimestamp]);
+
+  const remaining = Math.max(0, durationSec - elapsed);
+  const pct = Math.min(100, (elapsed / durationSec) * 100);
+  const isExpired = remaining <= 0;
+  const mins = Math.floor(remaining / 60);
+  const secs = remaining % 60;
+
+  return (
+    <div className="flex items-center gap-1.5 w-full">
+      <Timer className={`h-3 w-3 flex-shrink-0 ${isExpired ? "text-amber-500" : pct > 80 ? "text-rose-400" : "text-cyan-400"}`} />
+      <div className="flex-1">
+        <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+          <div
+            className={`h-full rounded-full transition-all duration-1000 ${isExpired ? "bg-amber-500" : pct > 80 ? "bg-rose-500" : "bg-cyan-500"}`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
+      <span className={`text-[10px] font-mono font-bold flex-shrink-0 ${isExpired ? "text-amber-500" : "text-foreground/70"}`}>
+        {isExpired ? "EXPIRED" : `${mins}:${String(secs).padStart(2, "0")}`}
+      </span>
+    </div>
+  );
+}
+
+/* ─ Enhanced Currency Strength Heatmap with Cross-Rate Matrix ─*/
 function CurrencyHeatmap({ prices }: { prices: PriceData[] }) {
-  const currencies = ["USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD"];
-  // Base USD pairs: EUR/USD (USD is quote, so USD strength = -change), USD/JPY (USD is base, so +change)
-  const strength = currencies.map(ccy => {
-    let totalChange = 0; let count = 0;
+  const CURRENCIES = ["USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD"];
+  const MATRIX_PAIRS: Record<string, string[]> = {
+    USD: ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD", "USD/CHF", "NZD/USD"],
+    EUR: ["EUR/USD", "EUR/GBP", "EUR/JPY"],
+    GBP: ["GBP/USD", "EUR/GBP", "GBP/JPY"],
+    JPY: ["USD/JPY", "EUR/JPY", "GBP/JPY"],
+    AUD: ["AUD/USD", "AUD/CAD", "AUD/JPY"],
+    CAD: ["USD/CAD", "AUD/CAD"],
+    CHF: ["USD/CHF"],
+    NZD: ["NZD/USD"],
+  };
+
+  // Calculate strength from live price changes
+  const strengthMap = useMemo(() => {
+    const map: Record<string, { total: number; count: number }> = {};
+    for (const ccy of CURRENCIES) map[ccy] = { total: 0, count: 0 };
+
     for (const p of prices) {
       const [base, quote] = p.pair.split("/");
-      if (base === ccy) { totalChange += p.changePercent; count++; }       // ccy is base → positive = strong
-      else if (quote === ccy) { totalChange -= p.changePercent; count++; }  // ccy is quote → negative change = strong
+      if (map[base]) { map[base].total += p.changePercent; map[base].count++; }
+      if (map[quote]) { map[quote].total -= p.changePercent; map[quote].count++; }
     }
-    return { ccy, strength: count > 0 ? totalChange / count : 0, pairs: count };
-  });
-  const maxAbs = Math.max(...strength.map(s => Math.abs(s.strength)), 0.01);
-  const getCell = (val: number) => {
-    if (val > maxAbs * 0.6) return "bg-emerald-500/80 text-white font-bold";
-    if (val > maxAbs * 0.25) return "bg-emerald-500/40 text-emerald-100 font-semibold";
-    if (val > maxAbs * 0.05) return "bg-emerald-500/15 text-emerald-400";
-    if (val < -maxAbs * 0.6) return "bg-rose-500/80 text-white font-bold";
-    if (val < -maxAbs * 0.25) return "bg-rose-500/40 text-rose-100 font-semibold";
-    if (val < -maxAbs * 0.05) return "bg-rose-500/15 text-rose-400";
+
+    const result: Record<string, number> = {};
+    for (const ccy of CURRENCIES) {
+      const m = map[ccy];
+      result[ccy] = m.count > 0 ? m.total / m.count : 0;
+    }
+    return result;
+  }, [prices]);
+
+  // Build cross-rate matrix
+  const matrix = useMemo(() => {
+    const grid: Record<string, Record<string, number | null>> = {};
+    for (const row of CURRENCIES) {
+      grid[row] = {};
+      for (const col of CURRENCIES) {
+        if (row === col) { grid[row][col] = 0; continue; }
+        // Find the pair that gives us row/col or col/row
+        const direct = prices.find(p => p.pair === `${row}/${col}`);
+        if (direct) {
+          // row is base, col is quote → positive change = row strong
+          grid[row][col] = direct.changePercent;
+        } else {
+          const inverse = prices.find(p => p.pair === `${col}/${row}`);
+          if (inverse) {
+            // col is base, row is quote → negative change = row strong
+            grid[row][col] = -inverse.changePercent;
+          } else {
+            grid[row][col] = null;
+          }
+        }
+      }
+    }
+    return grid;
+  }, [prices]);
+
+  const maxAbs = Math.max(...CURRENCIES.map(c => Math.abs(strengthMap[c])), 0.01);
+
+  const getStrengthCell = (val: number) => {
+    const n = val / maxAbs;
+    if (n > 0.6) return "bg-emerald-600/90 text-white font-bold";
+    if (n > 0.25) return "bg-emerald-500/50 text-emerald-50 font-semibold";
+    if (n > 0.05) return "bg-emerald-500/20 text-emerald-400";
+    if (n < -0.6) return "bg-rose-600/90 text-white font-bold";
+    if (n < -0.25) return "bg-rose-500/50 text-rose-50 font-semibold";
+    if (n < -0.05) return "bg-rose-500/20 text-rose-400";
     return "bg-muted/30 text-muted-foreground";
   };
+
+  const getMatrixCell = (val: number | null) => {
+    if (val === null) return "bg-muted/10 text-muted-foreground/30";
+    const abs = Math.abs(val);
+    const norm = Math.min(abs / 0.1, 1);
+    if (val > 0.03) return `bg-emerald-500/${Math.round(norm * 80)}`;
+    if (val < -0.03) return `bg-rose-500/${Math.round(norm * 80)}`;
+    return "bg-muted/20";
+  };
+
   const getLabel = (val: number) => {
     if (val > 0.1) return "BULLISH";
     if (val > 0.03) return "STRONG";
@@ -117,32 +224,91 @@ function CurrencyHeatmap({ prices }: { prices: PriceData[] }) {
     if (val > -0.1) return "WEAK";
     return "BEARISH";
   };
+
+  const sortedCurrencies = [...CURRENCIES].sort((a, b) => (strengthMap[b] || 0) - (strengthMap[a] || 0));
+
   return (
-    <Card className="border-border/30 bg-card/80 backdrop-blur">
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-sm">
-          <Flame className="h-4 w-4 text-orange-500" />
-          Currency Strength
-          <Badge variant="outline" className="border-orange-500/30 bg-orange-500/10 text-[10px] text-orange-500">{prices.length} pairs</Badge>
-        </CardTitle>
-        <p className="text-[10px] text-muted-foreground">Real-time relative strength from live price changes</p>
-      </CardHeader>
-      <CardContent>
-        {prices.length === 0 ? (
-          <div className="flex items-center justify-center py-8 text-muted-foreground/50 text-sm">Loading market data...</div>
-        ) : (
-          <div className="grid grid-cols-4 gap-2 sm:grid-cols-8">
-            {strength.sort((a, b) => b.strength - a.strength).map(s => (
-              <div key={s.ccy} className={`rounded-lg p-3 text-center transition-all duration-500 ${getCell(s.strength)}`}>
-                <div className="text-lg font-black">{s.ccy}</div>
-                <div className="text-[10px] mt-0.5 opacity-80">{getLabel(s.strength)}</div>
-                <div className="text-xs font-bold mt-1">{s.strength >= 0 ? "+" : ""}{s.strength.toFixed(3)}%</div>
-              </div>
-            ))}
+    <div className="space-y-4">
+      {/* Strength Ranking */}
+      <Card className="border-border/30 bg-card/80 backdrop-blur">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <Flame className="h-4 w-4 text-orange-500" />
+              Currency Strength Ranking
+              <Badge variant="outline" className="border-orange-500/30 bg-orange-500/10 text-[10px] text-orange-500">{prices.length} pairs</Badge>
+            </CardTitle>
+            <Badge variant="outline" className="border-border/30 text-[10px] text-muted-foreground">Sorted by strength</Badge>
           </div>
-        )}
-      </CardContent>
-    </Card>
+          <p className="text-[10px] text-muted-foreground">Real-time relative strength derived from live price changes across all pairs</p>
+        </CardHeader>
+        <CardContent>
+          {prices.length === 0 ? (
+            <div className="flex items-center justify-center py-8 text-muted-foreground/50 text-sm">Loading market data...</div>
+          ) : (
+            <div className="grid grid-cols-4 gap-2 sm:grid-cols-8">
+              {sortedCurrencies.map((ccy, idx) => {
+                const val = strengthMap[ccy] || 0;
+                return (
+                  <div key={ccy} className={`rounded-lg p-3 text-center transition-all duration-500 ${getStrengthCell(val)} relative`}>
+                    {idx < 3 && <span className="absolute -top-1 -right-1 text-[8px] font-bold bg-amber-500 text-black rounded-full w-4 h-4 flex items-center justify-center">{idx + 1}</span>}
+                    <div className="text-lg font-black">{ccy}</div>
+                    <div className="text-[10px] mt-0.5 opacity-80">{getLabel(val)}</div>
+                    <div className="text-xs font-bold mt-1">{val >= 0 ? "+" : ""}{val.toFixed(3)}%</div>
+                    <div className="mt-1.5 h-1 w-full rounded-full bg-black/20">
+                      <div className={`h-full rounded-full ${val >= 0 ? "bg-emerald-300" : "bg-rose-300"}`} style={{ width: `${Math.min(100, Math.abs(val) / maxAbs * 100)}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Cross-Rate Matrix */}
+      {prices.length > 0 && (
+        <Card className="border-border/30 bg-card/80 backdrop-blur">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <ArrowRightLeft className="h-4 w-4 text-violet-500" />
+              Cross-Rate Change Matrix
+            </CardTitle>
+            <p className="text-[10px] text-muted-foreground">Row currency vs Column currency — green = row stronger, red = row weaker</p>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-center text-[10px] border-collapse">
+                <thead>
+                  <tr>
+                    <th className="p-1 text-muted-foreground text-[9px] font-bold" />
+                    {CURRENCIES.map(c => <th key={c} className="p-1 font-bold text-foreground/80 min-w-[52px]">{c}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {CURRENCIES.map(row => (
+                    <tr key={row}>
+                      <td className="p-1 font-bold text-foreground/80 text-right pr-2">{row}</td>
+                      {CURRENCIES.map(col => {
+                        if (row === col) return <td key={col} className="p-1 rounded"><div className="h-7 w-full rounded bg-muted/10 flex items-center justify-center text-muted-foreground/20">—</div></td>;
+                        const val = matrix[row]?.[col];
+                        return (
+                          <td key={col} className="p-0.5">
+                            <div className={`h-7 w-full rounded flex items-center justify-center font-mono text-[9px] font-semibold transition-all duration-500 ${getMatrixCell(val)} ${val !== null ? (val >= 0 ? "text-emerald-100" : "text-rose-100") : "text-muted-foreground/30"}`}>
+                              {val !== null ? `${val >= 0 ? "+" : ""}${val.toFixed(3)}%` : "—"}
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
   );
 }
 
@@ -250,7 +416,7 @@ function IndicatorsPanel({ indicators }: { indicators: Record<string, string | n
   );
 }
 
-/* ─Signal Card ─*/
+/* ─Enhanced Signal Card with Real-time Pips Counter + Countdown ─*/
 function SignalCard({ signal, isNew, onClick, livePrice }: { signal: ForexSignal; isNew?: boolean; onClick?: () => void; livePrice?: number }) {
   const isBuy = signal.type === "BUY";
   const isActive = signal.status === "ACTIVE";
@@ -258,6 +424,10 @@ function SignalCard({ signal, isNew, onClick, livePrice }: { signal: ForexSignal
   const { isFavorite, toggleFavorite } = useForexStore();
   const fav = isFavorite(signal.pair);
   const livePips = isActive && livePrice ? calcPips(signal.entry, livePrice, signal.type, signal.pair) : null;
+
+  // Determine pips color/intensity
+  const pipsColor = livePips === null ? "" : livePips > 5 ? "text-emerald-400" : livePips > 0 ? "text-emerald-500" : livePips < -5 ? "text-rose-400" : "text-rose-500";
+  const pipsBg = livePips === null ? "" : livePips > 5 ? "bg-emerald-500/15" : livePips > 0 ? "bg-emerald-500/10" : livePips < -5 ? "bg-rose-500/15" : "bg-rose-500/10";
 
   return (
     <Card className={`relative overflow-hidden border transition-all duration-500 cursor-pointer hover:border-foreground/20 ${isNew ? "border-amber-400/60 shadow-lg shadow-amber-400/10" : isActive ? "border-border/40 bg-card/80" : "border-border/20 bg-card/40 opacity-70"} backdrop-blur`} onClick={onClick}>
@@ -289,6 +459,31 @@ function SignalCard({ signal, isNew, onClick, livePrice }: { signal: ForexSignal
             </div>
           </div>
         </div>
+
+        {/* REAL-TIME PIPS COUNTER — Prominent display for active signals */}
+        {isActive && livePips !== null && (
+          <div className={`mb-3 rounded-lg p-2.5 border transition-all duration-300 ${pipsBg} ${livePips >= 0 ? "border-emerald-500/20" : "border-rose-500/20"}`}>
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-1.5">
+                <PulseDot color={livePips >= 0 ? "bg-emerald-400" : "bg-rose-400"} />
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Live P&L</span>
+              </div>
+              <span className={`text-lg font-black tabular-nums ${pipsColor}`}>
+                {livePips >= 0 ? "+" : ""}{livePips.toFixed(1)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1.5">
+              <span>Current: <span className="font-mono font-bold text-foreground/80">{formatPrice(livePrice!, signal.pair)}</span></span>
+              <span className="flex items-center gap-1">
+                {livePips >= 0 ? <ArrowUpRight className="h-3 w-3 text-emerald-500" /> : <ArrowDownRight className="h-3 w-3 text-rose-500" />}
+                <span className={`font-bold ${pipsColor}`}>{livePips >= 0 ? "+" : ""}{livePips.toFixed(1)} pips</span>
+              </span>
+            </div>
+            {/* Countdown timer for 5-min trade */}
+            <CountdownTimer signalTimestamp={signal.timestamp} durationSec={300} />
+          </div>
+        )}
+
         <div className="mb-2 grid grid-cols-3 gap-2">
           <div className="rounded-lg bg-background/60 p-2"><p className="text-[10px] uppercase tracking-wider text-muted-foreground">Entry</p><p className="font-mono text-sm font-bold text-foreground">{formatPrice(signal.entry, signal.pair)}</p></div>
           <div className="rounded-lg bg-emerald-500/10 p-2"><p className="text-[10px] uppercase tracking-wider text-emerald-500/70">TP <span className="text-[8px] text-emerald-500/40">({signal.tpPips ? formatPrice(signal.tpPips, signal.pair) : "--"})</span></p><p className="font-mono text-sm font-bold text-emerald-500">{formatPrice(signal.tp, signal.pair)}</p></div>
@@ -305,18 +500,12 @@ function SignalCard({ signal, isNew, onClick, livePrice }: { signal: ForexSignal
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><Clock className="h-3 w-3" />{formatTime(signal.timestamp)}</div>
             {signal.tradeDuration && (<Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/10 text-[9px] font-bold text-cyan-400"><Radio className="mr-1 h-2.5 w-2.5" />{signal.tradeDuration}</Badge>)}
+            {/* Session badge on signal card */}
+            <Badge variant="outline" className="border-border/30 bg-muted/30 text-[9px] text-muted-foreground">{getSessionAtTime(signal.timestamp)}</Badge>
           </div>
           {!isActive && signal.pips !== undefined ? (
             <Badge variant="outline" className={`text-xs font-bold ${signal.pips > 0 ? "border-emerald-500/30 text-emerald-500" : "border-rose-500/30 text-rose-500"}`}>{signal.pips > 0 ? "+" : ""}{signal.pips} pips</Badge>
-          ) : isActive && livePips !== null ? (
-            <div className="flex items-center gap-2">
-              <PulseDot color={livePips >= 0 ? "bg-emerald-400" : "bg-rose-400"} />
-              <span className={`text-xs font-bold ${livePips >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
-                {livePips >= 0 ? "+" : ""}{livePips.toFixed(1)} pips
-              </span>
-              <span className="text-[9px] text-muted-foreground">LIVE</span>
-            </div>
-          ) : isActive ? (<div className="flex items-center gap-1.5"><PulseDot color="bg-emerald-400" /><span className="text-xs font-medium text-emerald-500">LIVE</span></div>) : null}
+          ) : isActive && livePips === null ? (<div className="flex items-center gap-1.5"><PulseDot color="bg-emerald-400" /><span className="text-xs font-medium text-emerald-500">LIVE</span></div>) : null}
         </div>
       </CardContent>
     </Card>
@@ -333,16 +522,21 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
-  const { autoRefresh, tradingMode, setTradingMode, notificationsEnabled, soundEnabled, selectedPair, setSelectedSignalId, selectedSignalId, favorites, activeTab, setActiveTab } = useForexStore();
+  const { autoRefresh, tradingMode, setTradingMode, notificationsEnabled, soundEnabled, selectedPair, setSelectedSignalId, selectedSignalId, favorites, activeTab, setActiveTab, sessionFilter } = useForexStore();
 
-  // Filter signals/prices by pair and favorites
-  const filteredSignals = signals.filter(s => {
+  // Filter signals by pair, favorites, and SESSION
+  const filteredSignals = useMemo(() => signals.filter(s => {
     if (selectedPair === "__favorites__") {
-      return favorites.length > 0 && favorites.includes(s.pair);
+      if (favorites.length === 0 || !favorites.includes(s.pair)) return false;
+    } else if (selectedPair !== "ALL" && s.pair !== selectedPair) return false;
+    // Session filter
+    if (sessionFilter !== "ALL") {
+      const signalSession = getSessionAtTime(s.timestamp);
+      if (signalSession !== sessionFilter) return false;
     }
-    if (selectedPair !== "ALL" && s.pair !== selectedPair) return false;
     return true;
-  });
+  }), [signals, selectedPair, favorites, sessionFilter]);
+
   const filteredPrices = prices.filter(p => {
     if (selectedPair === "__favorites__") {
       return favorites.length > 0 && favorites.includes(p.pair);
@@ -497,7 +691,7 @@ export default function Home() {
           {/* Active Signals */}
           <TabsContent value="active">
             {activeSignals.length === 0 ? (
-              <Card className="border-border/20 bg-card/40"><CardContent className="flex flex-col items-center justify-center py-16"><Activity className="mb-4 h-12 w-12 text-muted-foreground/30" /><p className="text-lg font-medium text-muted-foreground">Waiting for signals...</p><p className="mb-4 text-sm text-muted-foreground/60">Technical analysis running on live data (RSI, MACD, EMA, BBands, ATR)</p></CardContent></Card>
+              <Card className="border-border/20 bg-card/40"><CardContent className="flex flex-col items-center justify-center py-16"><Activity className="mb-4 h-12 w-12 text-muted-foreground/30" /><p className="text-lg font-medium text-muted-foreground">Waiting for signals...</p><p className="mb-2 text-sm text-muted-foreground/60">Technical analysis running on live data (RSI, MACD, EMA, BBands, ATR)</p>{sessionFilter !== "ALL" && <p className="text-xs text-muted-foreground/40">Filtered by {sessionFilter} session</p>}</CardContent></Card>
             ) : (<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{activeSignals.map(s => {
               const lp = prices.find(p => p.pair === s.pair)?.bid;
               return <SignalCard key={s.id} signal={s} isNew={s.id === newSignalId} onClick={() => setSelectedSignalId(s.id)} livePrice={lp} />;
@@ -514,7 +708,7 @@ export default function Home() {
                 <CardContent className="p-0">
                   <ScrollArea className="max-h-96">
                     <Table>
-                      <TableHeader><TableRow className="border-border/30 hover:bg-transparent"><TableHead className="text-xs">ID</TableHead><TableHead className="text-xs">Pair</TableHead><TableHead className="text-xs">Type</TableHead><TableHead className="text-xs text-right">Entry</TableHead><TableHead className="text-xs text-right">TP</TableHead><TableHead className="text-xs text-right">SL</TableHead><TableHead className="text-xs">Conf</TableHead><TableHead className="text-xs">Status</TableHead><TableHead className="text-xs text-right">Pips</TableHead><TableHead className="text-xs">Time</TableHead></TableRow></TableHeader>
+                      <TableHeader><TableRow className="border-border/30 hover:bg-transparent"><TableHead className="text-xs">ID</TableHead><TableHead className="text-xs">Pair</TableHead><TableHead className="text-xs">Type</TableHead><TableHead className="text-xs text-right">Entry</TableHead><TableHead className="text-xs text-right">TP</TableHead><TableHead className="text-xs text-right">SL</TableHead><TableHead className="text-xs">Conf</TableHead><TableHead className="text-xs">Session</TableHead><TableHead className="text-xs">Status</TableHead><TableHead className="text-xs text-right">Pips</TableHead><TableHead className="text-xs">Time</TableHead></TableRow></TableHeader>
                       <TableBody>
                         {completedSignals.map(s => (
                           <TableRow key={s.id} className="border-border/20 cursor-pointer hover:bg-muted/50" onClick={() => setSelectedSignalId(s.id)}>
@@ -525,6 +719,7 @@ export default function Home() {
                             <TableCell className="text-right font-mono text-xs text-emerald-500">{formatPrice(s.tp, s.pair)}</TableCell>
                             <TableCell className="text-right font-mono text-xs text-rose-500">{formatPrice(s.sl, s.pair)}</TableCell>
                             <TableCell className="text-xs">{s.confidence ? <ConfidenceBar confidence={s.confidence} /> : "--"}</TableCell>
+                            <TableCell><Badge variant="outline" className="text-[9px] border-border/30 text-muted-foreground">{getSessionAtTime(s.timestamp)}</Badge></TableCell>
                             <TableCell><Badge variant="outline" className={`text-[10px] font-bold ${s.status === "TP_HIT" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500" : "border-rose-500/30 bg-rose-500/10 text-rose-500"}`}>{s.status === "TP_HIT" ? "TP HIT" : "SL HIT"}</Badge></TableCell>
                             <TableCell className={`text-right font-mono text-xs font-bold ${(s.pips || 0) > 0 ? "text-emerald-500" : "text-rose-500"}`}>{(s.pips || 0) > 0 ? "+" : ""}{s.pips || 0}</TableCell>
                             <TableCell className="text-[10px] text-muted-foreground">{formatTime(s.timestamp)}</TableCell>

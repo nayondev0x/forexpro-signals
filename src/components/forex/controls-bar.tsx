@@ -26,6 +26,7 @@ import {
   Filter,
   Radio,
   Power,
+  Clock,
 } from "lucide-react";
 
 const COMMON_PAIRS = [
@@ -40,6 +41,14 @@ const COMMON_PAIRS = [
   "EUR/JPY",
   "GBP/JPY",
   "XAU/USD",
+];
+
+const SESSION_OPTIONS = [
+  { value: "ALL", label: "All Sessions", flag: "" },
+  { value: "Sydney", label: "Sydney", flag: "🇦🇺" },
+  { value: "Tokyo", label: "Tokyo", flag: "🇯🇵" },
+  { value: "London", label: "London", flag: "🇬🇧" },
+  { value: "New York", label: "New York", flag: "🇺🇸" },
 ];
 
 interface ControlsBarProps {
@@ -67,6 +76,8 @@ export function ControlsBar({
     setNotificationsEnabled,
     soundEnabled,
     setSoundEnabled,
+    sessionFilter,
+    setSessionFilter,
   } = useForexStore();
 
   const handleNotificationToggle = async () => {
@@ -92,7 +103,7 @@ export function ControlsBar({
       <div className="flex items-center gap-1.5">
         <Filter className="size-3.5 text-muted-foreground" />
         <Select value={selectedPair} onValueChange={handlePairChange}>
-          <SelectTrigger size="sm" className="w-[140px]">
+          <SelectTrigger size="sm" className="w-[130px]">
             <SelectValue placeholder="All Pairs" />
           </SelectTrigger>
           <SelectContent>
@@ -106,6 +117,25 @@ export function ControlsBar({
           </SelectContent>
         </Select>
       </div>
+
+      {/* Session Filter */}
+      {tradingMode && (
+        <div className="flex items-center gap-1.5">
+          <Clock className="size-3.5 text-muted-foreground" />
+          <Select value={sessionFilter} onValueChange={setSessionFilter}>
+            <SelectTrigger size="sm" className="w-[130px]">
+              <SelectValue placeholder="Session" />
+            </SelectTrigger>
+            <SelectContent>
+              {SESSION_OPTIONS.map((s) => (
+                <SelectItem key={s.value} value={s.value}>
+                  {s.flag ? `${s.flag} ` : ""}{s.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {/* Favorites Toggle */}
       {!showFavoritesOnly && selectedPair !== "ALL" && (
@@ -132,7 +162,7 @@ export function ControlsBar({
         </Tooltip>
       )}
 
-      {/* ── LIVE TRADING TOGGLE (Master Switch) ── */}
+      {/* LIVE TRADING TOGGLE (Master Switch) */}
       <div className={`flex items-center gap-2 rounded-full px-3 py-1 border transition-all duration-300 ${
         tradingMode
           ? "border-emerald-500/50 bg-emerald-500/10 shadow-[0_0_8px_rgba(16,185,129,0.15)]"

@@ -19,6 +19,8 @@ interface ForexStore {
   setSoundEnabled: (v: boolean) => void;
   selectedSignalId: string | null;
   setSelectedSignalId: (id: string | null) => void;
+  sessionFilter: string;        // "ALL" | "Sydney" | "Tokyo" | "London" | "New York"
+  setSessionFilter: (v: string) => void;
 }
 
 export const useForexStore = create<ForexStore>()(
@@ -44,7 +46,9 @@ export const useForexStore = create<ForexStore>()(
       setSoundEnabled: (v: boolean) => set({ soundEnabled: v }),
       selectedSignalId: null,
       setSelectedSignalId: (id: string | null) => set({ selectedSignalId: id }),
+      sessionFilter: "ALL",
+      setSessionFilter: (v: string) => set({ sessionFilter: v }),
     }),
-    { name: "forex-prefs", partialize: (s) => ({ favorites: s.favorites, autoRefresh: s.autoRefresh, tradingMode: s.tradingMode, notificationsEnabled: s.notificationsEnabled, soundEnabled: s.soundEnabled, selectedPair: s.selectedPair, activeTab: s.activeTab }) }
+    { name: "forex-prefs", partialize: (s) => ({ favorites: s.favorites, autoRefresh: s.autoRefresh, tradingMode: s.tradingMode, notificationsEnabled: s.notificationsEnabled, soundEnabled: s.soundEnabled, selectedPair: s.selectedPair, activeTab: s.activeTab, sessionFilter: s.sessionFilter }) }
   )
 );

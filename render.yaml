@@ -72,3 +72,7 @@ services:
         sync: false
       - key: CRYPTOEDGE_API_HOST
         value: cryptoedge-market-sentiment-indicators.p.rapidapi.com
+      - key: FINANCECORE_API_KEY
+        sync: false
+      - key: FINANCECORE_API_HOST
+        value: financecore-api.p.rapidapi.com
