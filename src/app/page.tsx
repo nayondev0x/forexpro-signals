@@ -54,6 +54,8 @@ import {
 } from "@/components/forex/loading-skeletons";
 import {
   playSignalSound,
+  playTPSound,
+  playSLSound,
   sendBrowserNotification,
 } from "@/components/forex/notification-sound";
 import { getSessionAtTime, calcPips, formatPrice } from "@/lib/forex-helpers";
@@ -164,6 +166,7 @@ export default function Home() {
     if (!tradingMode || prices.length === 0) return;
     setSignals((prev) => {
       let changed = false;
+      let hitResult: { pair: string; type: string; status: "TP_HIT" | "SL_HIT"; pips: number } | null = null;
       const updated = prev.map((sig) => {
         if (sig.status !== "ACTIVE") return sig;
 
@@ -187,6 +190,7 @@ export default function Home() {
           changed = true;
           const pips = calcPips(sig.entry, livePrice, sig.type, sig.pair);
           const pipsRounded = Math.round(pips * 10) / 10;
+          hitResult = { pair: sig.pair, type: sig.type, status: result, pips: pipsRounded };
 
           // Save to persistent history
           addSignalResult({
@@ -206,6 +210,23 @@ export default function Home() {
         }
         return sig;
       });
+
+      // Play sound + notification on TP/SL hit
+      if (hitResult) {
+        if (hitResult.status === "TP_HIT") {
+          playTPSound();
+          sendBrowserNotification(
+            `TP HIT! ${hitResult.pair} ${hitResult.type}`,
+            `+${hitResult.pips} pips profit!`
+          );
+        } else {
+          playSLSound();
+          sendBrowserNotification(
+            `SL HIT! ${hitResult.pair} ${hitResult.type}`,
+            `${hitResult.pips} pips loss`
+          );
+        }
+      }
 
       return changed ? updated : prev;
     });
