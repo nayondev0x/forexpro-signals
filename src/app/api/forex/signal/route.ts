@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 
 /* ═══════════════════════════════════════════════════════════
-   PRECISION SIGNAL ENGINE v3 — ULTRA MAX ACCURACY
+   PRECISION SIGNAL ENGINE v3.1 — ULTRA MAX ACCURACY
    - 8+ local indicators (candlestick, EMA, RSI, MACD, etc.)
-   - 15 external Crypto TA API indicators (RSI, MACD, ADX,
+   - 20 external Crypto TA API indicators (RSI, MACD, ADX,
      Bollinger, Stochastic, CCI, Aroon, UO, Donchian, ROC,
-     MFI, SMA, WMA, EMA)
-   - Multi-indicator confluence (10+ confirmations)
+     MFI, SMA, WMA, EMA, SD, PSAR, Williams %R, TSI,
+     Volume Oscillator, Price, Volume)
+   - Multi-indicator confluence (15+ confirmations)
    - Real ATR from candle data
    - Dynamic TP/SL with trend-aligned entries
    - Multi-layer caching (prices 30s, candles 5min, TA 5min)
@@ -100,9 +101,10 @@ class DualApiManager {
 const api = new DualApiManager();
 
 /* ═══════════════════════════════════════════════════════════
-   CRYPTO TA API MANAGER — 15 External Indicators
-   ADX, EMA, SMA, WMA, Aroon, UO, Donchian, ROC, MFI,
-   Stochastic, MACD, Bollinger Bands, CCI, RSI
+   CRYPTO TA API MANAGER — 20 External Indicators
+   RSI, MACD, ADX, Bollinger, Stochastic, CCI, Aroon, UO,
+   Donchian, ROC, MFI, SMA, WMA, EMA, SD, PSAR,
+   Williams %R, TSI, Volume Oscillator, Price, Volume
    ═══════════════════════════════════════════════════════════ */
 
 interface TAIndicator {
@@ -120,6 +122,14 @@ interface TAIndicator {
   ema14?: number;
   sma14?: number;
   wma14?: number;
+  // v3.1 new indicators
+  sd?: number;                    // Standard Deviation
+  psar?: { sar: number; isAbove: boolean };  // Parabolic SAR
+  williamsR?: number;            // Williams %R
+  tsi?: { tsi: number; signal: number };  // True Strength Index
+  volOsc?: number;               // Volume Oscillator
+  taPrice?: number;              // External price confirmation
+  taVolume?: number;             // Volume data
 }
 
 const CRYPTO_TA_KEY = process.env.CRYPTO_TA_API_KEY || "";
@@ -163,8 +173,8 @@ async function fetchAllTAIndicators(from: string, to: string): Promise<TAIndicat
   if (!CRYPTO_TA_KEY) return null;
 
   try {
-    // Fetch all 14 indicators in parallel (aggressive but cached for 5min)
-    const [rsiData, macdData, adxData, bbData, stochData, cciData, aroonData, uoData, donchData, rocData, mfiData, emaData, smaData, wmaData] = await Promise.allSettled([
+    // Fetch all 20 indicators in parallel (aggressive but cached for 5min)
+    const [rsiData, macdData, adxData, bbData, stochData, cciData, aroonData, uoData, donchData, rocData, mfiData, emaData, smaData, wmaData, sdData, psarData, wrData, tsiData, voData, priceData, volData] = await Promise.allSettled([
       fetchTAIndicator(symbol, "rsi", "length=14"),
       fetchTAIndicator(symbol, "macd", "short=12&long=26&signal=9"),
       fetchTAIndicator(symbol, "adx", "diLength=14&adxSmoothing=14"),
@@ -179,6 +189,14 @@ async function fetchAllTAIndicators(from: string, to: string): Promise<TAIndicat
       fetchTAIndicator(symbol, "ema", "length=14"),
       fetchTAIndicator(symbol, "sma", "length=14"),
       fetchTAIndicator(symbol, "wma", "length=14"),
+      // v3.1 new indicators
+      fetchTAIndicator(symbol, "sd", "periods=5&deviations=1"),
+      fetchTAIndicator(symbol, "psar", "start=0.02&increment=0.02&maximum=0.2"),
+      fetchTAIndicator(symbol, "williamsR", "length=14"),
+      fetchTAIndicator(symbol, "tsi", "long=25&short=13&siglen=13"),
+      fetchTAIndicator(symbol, "volume-oscillator", "shortlen=5&longlen=10"),
+      fetchTAIndicator(symbol, "price", ""),           // External price
+      fetchTAIndicator(symbol, "volume", ""),           // Volume data
     ]);
 
     const result: TAIndicator = {};
@@ -291,6 +309,57 @@ async function fetchAllTAIndicators(from: string, to: string): Promise<TAIndicat
       if (typeof wmaVal === "number" && !isNaN(wmaVal)) result.wma14 = wmaVal;
     }
 
+    // ── v3.1 NEW INDICATORS ──
+
+    // Parse Standard Deviation
+    if (sdData.status === "fulfilled" && sdData.value) {
+      const sdVal = typeof sdData.value === "number" ? sdData.value : sdData.value?.sd || sdData.value?.value || sdData.value?.standardDeviation;
+      if (typeof sdVal === "number" && !isNaN(sdVal) && sdVal >= 0) result.sd = sdVal;
+    }
+
+    // Parse Parabolic SAR (store raw SAR, direction computed in analysis)
+    if (psarData.status === "fulfilled" && psarData.value) {
+      const p = psarData.value;
+      const sarVal = typeof p.sar === "number" ? p.sar : p.value || p.psar;
+      if (typeof sarVal === "number" && !isNaN(sarVal)) {
+        result.psar = { sar: sarVal, isAbove: false }; // isAbove computed in analyzeWithTA
+      }
+    }
+
+    // Parse Williams %R
+    if (wrData.status === "fulfilled" && wrData.value) {
+      const wrVal = typeof wrData.value === "number" ? wrData.value : wrData.value?.williamsR || wrData.value?.value || wrData.value?.["%R"];
+      if (typeof wrVal === "number" && !isNaN(wrVal)) result.williamsR = wrVal;
+    }
+
+    // Parse True Strength Index (TSI)
+    if (tsiData.status === "fulfilled" && tsiData.value) {
+      const t = tsiData.value;
+      const tsiVal = typeof t.tsi === "number" ? t.tsi : t.value || t.tsiValue;
+      const tsiSig = typeof t.signal === "number" ? t.signal : t.signalLine || t.signalValue;
+      if (typeof tsiVal === "number" && !isNaN(tsiVal)) {
+        result.tsi = { tsi: tsiVal, signal: tsiSig || 0 };
+      }
+    }
+
+    // Parse Volume Oscillator
+    if (voData.status === "fulfilled" && voData.value) {
+      const voVal = typeof voData.value === "number" ? voData.value : voData.value?.value || voData.value?.oscillator || voData.value?.["volume-oscillator"];
+      if (typeof voVal === "number" && !isNaN(voVal)) result.volOsc = voVal;
+    }
+
+    // Parse External Price (for validation)
+    if (priceData.status === "fulfilled" && priceData.value) {
+      const pVal = typeof priceData.value === "number" ? priceData.value : priceData.value?.price || priceData.value?.close || priceData.value?.value;
+      if (typeof pVal === "number" && !isNaN(pVal) && pVal > 0) result.taPrice = pVal;
+    }
+
+    // Parse Volume
+    if (volData.status === "fulfilled" && volData.value) {
+      const vVal = typeof volData.value === "number" ? volData.value : volData.value?.volume || volData.value?.value;
+      if (typeof vVal === "number" && !isNaN(vVal) && vVal > 0) result.taVolume = vVal;
+    }
+
     // Only cache if we got at least some data
     const dataCount = Object.keys(result).length;
     if (dataCount >= 2) {
@@ -368,9 +437,9 @@ async function fetchCandles(from: string, to: string) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   PRECISION ANALYSIS ENGINE v3
+   PRECISION ANALYSIS ENGINE v3.1
    - 8+ local technical checks
-   - 14 external TA API indicators
+   - 20 external TA API indicators
    - Minimum 5 confluences required
    - Score-weighted confidence
    - Trend filter: no counter-trend trades
@@ -709,6 +778,82 @@ function analyzeWithTA(pair: string, price: number, candles: any[], ta: TAIndica
       else { sell += 0.5; }
     }
 
+    // ─── TA-15: Standard Deviation — volatility measure ───
+    if (ta.sd !== undefined) {
+      ind.TA_SD = ta.sd.toFixed(dec);
+      // High SD = high volatility — directional candle gets extra weight
+      const avgPrice = (c0.h + c0.l) / 2;
+      if (avgPrice > 0) {
+        const sdPct = (ta.sd / avgPrice) * 100;
+        if (sdPct > 0.5) {
+          // High volatility — add momentum bonus
+          if (c0.c > c0.o) { buy += 1; reasons.push(`TA-SD high volatility bullish (${sdPct.toFixed(2)}%)`); }
+          else { sell += 1; reasons.push(`TA-SD high volatility bearish (${sdPct.toFixed(2)}%)`); }
+        }
+      }
+    }
+
+    // ─── TA-16: Parabolic SAR — trend direction + SAR flip ───
+    if (ta.psar) {
+      ind.TA_PSAR = ta.psar.sar.toFixed(dec);
+      const sarBelowPrice = ta.psar.sar < price;
+      ta.psar.isAbove = !sarBelowPrice;
+      if (sarBelowPrice) {
+        buy += 2; reasons.push("TA-PSAR bullish (SAR below price)");
+      } else {
+        sell += 2; reasons.push("TA-PSAR bearish (SAR above price)");
+      }
+      // SAR very close to price = potential flip (reversal warning)
+      const distFromSAR = Math.abs(price - ta.psar.sar) / atr;
+      if (distFromSAR < 0.5) {
+        // SAR close to price — reversal risk
+        if (sarBelowPrice && sell > buy) { sell += 1.5; reasons.push("TA-PSAR flip warning bearish"); }
+        else if (!sarBelowPrice && buy > sell) { buy += 1.5; reasons.push("TA-PSAR flip warning bullish"); }
+      }
+    }
+
+    // ─── TA-17: Williams %R — overbought/oversold ───
+    if (ta.williamsR !== undefined) {
+      ind.TA_WilliamsR = ta.williamsR;
+      // Williams %R: -80 to -100 = oversold, -20 to 0 = overbought
+      if (ta.williamsR < -80) {
+        buy += 2;
+        if (ta.williamsR < -90) { buy += 1; reasons.push(`TA-Williams%R deep oversold (${ta.williamsR})`); }
+        else { reasons.push(`TA-Williams%R oversold (${ta.williamsR})`); }
+      } else if (ta.williamsR > -20) {
+        sell += 2;
+        if (ta.williamsR > -10) { sell += 1; reasons.push(`TA-Williams%R deep overbought (${ta.williamsR})`); }
+        else { reasons.push(`TA-Williams%R overbought (${ta.williamsR})`); }
+      }
+    }
+
+    // ─── TA-18: True Strength Index (TSI) ───
+    if (ta.tsi) {
+      ind.TA_TSI = ta.tsi.tsi.toFixed(4);
+      ind.TA_TSI_Signal = ta.tsi.signal.toFixed(4);
+      if (ta.tsi.tsi > 0 && ta.tsi.signal > 0) {
+        buy += 1.5; reasons.push(`TA-TSI bullish (${ta.tsi.tsi.toFixed(4)})`);
+      } else if (ta.tsi.tsi < 0 && ta.tsi.signal < 0) {
+        sell += 1.5; reasons.push(`TA-TSI bearish (${ta.tsi.tsi.toFixed(4)})`);
+      }
+      // TSI crossover (zero line cross)
+      if (ta.tsi.tsi > 0 && ta.tsi.signal < 0) { buy += 2; reasons.push("TA-TSI bullish zero cross"); }
+      else if (ta.tsi.tsi < 0 && ta.tsi.signal > 0) { sell += 2; reasons.push("TA-TSI bearish zero cross"); }
+    }
+
+    // ─── TA-19: Volume Oscillator — volume trend ───
+    if (ta.volOsc !== undefined) {
+      ind.TA_VolOsc = ta.volOsc;
+      if (ta.volOsc > 0) {
+        // Short MA > Long MA = increasing volume — confirms trend
+        if (buy > sell) { buy += 1; reasons.push(`TA-VolOsc rising volume confirms buy (${ta.volOsc})`); }
+        else { sell += 1; reasons.push(`TA-VolOsc rising volume confirms sell (${ta.volOsc})`); }
+      } else if (ta.volOsc < -5) {
+        // Declining volume — weakens signal (no bonus, just note)
+        reasons.push(`TA-VolOsc declining volume (${ta.volOsc})`);
+      }
+    }
+
     // ═══ CROSS-INDICATOR CONFLUENCE BONUSES ═══
     // When multiple TA indicators strongly agree, add bonus
 
@@ -720,13 +865,20 @@ function analyzeWithTA(pair: string, price: number, candles: any[], ta: TAIndica
     if (ta.cci !== undefined) { if (ta.cci < -80) taBuyCount++; if (ta.cci > 80) taSellCount++; }
     if (ta.mfi !== undefined) { if (ta.mfi < 25) taBuyCount++; if (ta.mfi > 75) taSellCount++; }
     if (ta.aroon) { if (ta.aroon.up - ta.aroon.down > 30) taBuyCount++; if (ta.aroon.down - ta.aroon.up > 30) taSellCount++; }
+    // v3.1 new confluence indicators
+    if (ta.williamsR !== undefined) { if (ta.williamsR < -80) taBuyCount++; if (ta.williamsR > -20) taSellCount++; }
+    if (ta.tsi) { if (ta.tsi.tsi > 0) taBuyCount++; if (ta.tsi.tsi < 0) taSellCount++; }
+    if (ta.psar) { if (ta.psar.sar < price) taBuyCount++; else taSellCount++; }
 
-    // Super confluence: 5+ TA indicators agree
-    if (taBuyCount >= 5) { buy += 3; reasons.push(`TA-Super confluence (${taBuyCount}/7 bullish)`); }
-    else if (taSellCount >= 5) { sell += 3; reasons.push(`TA-Super confluence (${taSellCount}/7 bearish)`); }
-    // Strong confluence: 4 TA indicators agree
-    else if (taBuyCount >= 4) { buy += 2; reasons.push(`TA-Strong confluence (${taBuyCount}/7 bullish)`); }
-    else if (taSellCount >= 4) { sell += 2; reasons.push(`TA-Strong confluence (${taSellCount}/7 bearish)`); }
+    // Super confluence: 6+ TA indicators agree (raised from 5 with more indicators)
+    if (taBuyCount >= 6) { buy += 3.5; reasons.push(`TA-Super confluence (${taBuyCount}/10 bullish)`); }
+    else if (taSellCount >= 6) { sell += 3.5; reasons.push(`TA-Super confluence (${taSellCount}/10 bearish)`); }
+    // Strong confluence: 5 TA indicators agree
+    else if (taBuyCount >= 5) { buy += 2.5; reasons.push(`TA-Strong confluence (${taBuyCount}/10 bullish)`); }
+    else if (taSellCount >= 5) { sell += 2.5; reasons.push(`TA-Strong confluence (${taSellCount}/10 bearish)`); }
+    // Good confluence: 4 TA indicators agree
+    else if (taBuyCount >= 4) { buy += 1.5; reasons.push(`TA-Good confluence (${taBuyCount}/10 bullish)`); }
+    else if (taSellCount >= 4) { sell += 1.5; reasons.push(`TA-Good confluence (${taSellCount}/10 bearish)`); }
   }
 
   // ═══ FINAL DECISION ═══
@@ -790,7 +942,7 @@ function analyzeWithTA(pair: string, price: number, candles: any[], ta: TAIndica
     source: "RapidAPI",
     apiSource: src,
     apiKey: key,
-    engineVersion: "v3-TA",
+    engineVersion: "v3.1-TA",
   };
 }
 
@@ -863,7 +1015,7 @@ export async function GET() {
       const { pair, from, to, price, src, key } = priceResults[i];
       try {
         const candles = await getCachedCandles(from, to);
-        // Fetch external TA indicators (cached 5min, 14 parallel calls)
+        // Fetch external TA indicators (cached 5min, 20 parallel calls)
         const taData = await fetchAllTAIndicators(from, to);
         const sig = analyzeWithTA(pair, price, candles, taData, src, key);
         if (sig) signals.push(sig);
@@ -878,12 +1030,12 @@ export async function GET() {
     if (topSignals.length > 0) { cachedSignals = topSignals; lastSignalTime = Date.now(); }
 
     return NextResponse.json({
-      source: topSignals.length > 0 ? "RapidAPI (Precision Engine v3 + 15 TA Indicators)" : "no-qualifying-signals",
+      source: topSignals.length > 0 ? "RapidAPI (Precision Engine v3.1 + 20 TA Indicators)" : "no-qualifying-signals",
       signals: topSignals.length > 0 ? topSignals : cachedSignals,
       generated: topSignals.length,
       totalChecked: PAIRS.length,
       apiStats: api.stats,
-      engineVersion: "v3-TA",
+      engineVersion: "v3.1-TA",
     });
   } catch {
     return NextResponse.json({ source: "error", signals: cachedSignals, apiStats: api.stats });
