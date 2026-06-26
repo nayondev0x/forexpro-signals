@@ -8,7 +8,7 @@ export interface ForexSignal {
   tp: number;
   sl: number;
   timestamp: string;
-  status: "ACTIVE" | "TP_HIT" | "SL_HIT" | "CLOSED";
+  status: "ACTIVE" | "TP_HIT" | "SL_HIT" | "CLOSED" | "EXPIRED";
   pips?: number;
   confidence?: number;
   reasoning?: string[];

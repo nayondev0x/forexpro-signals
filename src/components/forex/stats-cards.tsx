@@ -9,9 +9,11 @@ import {
   Brain,
   Wifi,
   WifiOff,
+  Zap,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { useForexStore } from "@/stores/forex-store";
 import type { ForexSignal } from "@/lib/forex-types";
 
 export function StatsCards({
@@ -21,13 +23,9 @@ export function StatsCards({
   signals: ForexSignal[];
   dataSource: string;
 }) {
-  const total = signals.length;
+  const { wins, losses } = useForexStore();
+  const totalSession = signals.length;
   const active = signals.filter((s) => s.status === "ACTIVE").length;
-  const tp = signals.filter((s) => s.status === "TP_HIT").length;
-  const sl = signals.filter((s) => s.status === "SL_HIT").length;
-  const completed = tp + sl;
-  const winRate =
-    completed > 0 ? ((tp / completed) * 100).toFixed(1) : "--";
   const totalPips = signals.reduce((a, s) => a + (s.pips || 0), 0);
   const avgConf =
     signals.length > 0
@@ -37,13 +35,19 @@ export function StatsCards({
         )
       : 0;
 
+  // Use persistent store for win/loss if available, fallback to session
+  const totalWins = wins || signals.filter((s) => s.status === "TP_HIT").length;
+  const totalLosses = losses || signals.filter((s) => s.status === "SL_HIT" || s.status === "EXPIRED").length;
+  const totalResults = totalWins + totalLosses;
+  const winRate = totalResults > 0 ? ((totalWins / totalResults) * 100).toFixed(1) : "--";
+
   const stats = [
-    { label: "Total Signals", value: total, icon: Signal, color: "text-sky-500" },
-    { label: "Active", value: active, icon: Activity, color: "text-amber-500" },
-    { label: "Win Rate", value: `${winRate}%`, icon: Trophy, color: "text-emerald-500" },
-    { label: "TP / SL", value: `${tp} / ${sl}`, icon: Target, color: "text-emerald-500" },
+    { label: "All-Time Wins", value: totalWins, icon: Trophy, color: "text-emerald-500" },
+    { label: "All-Time Losses", value: totalLosses, icon: Target, color: "text-rose-500" },
+    { label: "Win Rate", value: `${winRate}%`, icon: Zap, color: parseFloat(winRate) >= 60 ? "text-emerald-500" : "text-amber-500" },
+    { label: "Session Signals", value: totalSession, icon: Signal, color: "text-sky-500" },
     {
-      label: "Total Pips",
+      label: "Session Pips",
       value: `${totalPips > 0 ? "+" : ""}${totalPips.toFixed(1)}`,
       icon: BarChart3,
       color: totalPips >= 0 ? "text-emerald-500" : "text-rose-500",
@@ -85,7 +89,7 @@ export function StatsCards({
                 variant="outline"
                 className="ml-2 border-emerald-500/30 text-[10px] text-emerald-500"
               >
-                Twelve Data + Alpha Vantage
+                Elite Engine v4.0 + 28 Indicators + 9 Pairs
               </Badge>
             </>
           ) : (

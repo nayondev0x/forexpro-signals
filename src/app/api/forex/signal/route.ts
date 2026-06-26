@@ -1,16 +1,12 @@
 import { NextResponse } from "next/server";
 
 /* ═══════════════════════════════════════════════════════════
-   PRECISION SIGNAL ENGINE v3.1-TA — 5-MIN SCALPING MODE
+   PRECISION SIGNAL ENGINE v4.0-ELITE — TOP 2 ONLY
    - 8+ local indicators (candlestick, EMA, RSI, MACD, etc.)
-   - 20 external Crypto TA API indicators (RSI, MACD, ADX,
-     Bollinger, Stochastic, CCI, Aroon, UO, Donchian, ROC,
-     MFI, SMA, WMA, EMA, SD, PSAR, Williams %R, TSI,
-     Volume Oscillator, Price, Volume) — all on 5min timeframe
-   - Multi-indicator confluence (15+ confirmations)
-   - Real ATR from 5min candles
-   - 5-MIN SCALPING TP/SL: TP 1-1.5x ATR, SL 0.5-0.7x ATR
-   - Every trade targets ~5 min duration
+   - 20 external Crypto TA API indicators
+   - ULTRA-STRICT: 85%+ confidence, 10+ confluences required
+   - Only TOP 2 strongest signals output
+   - 5-10 min auto-expiry with TP/SL live check
    - Multi-layer caching (prices 30s, candles 5min, TA 5min)
    ═══════════════════════════════════════════════════════════ */
 
@@ -932,10 +928,10 @@ function analyzeWithTA(pair: string, price: number, candles: any[], ta: TAIndica
   const total = buy + sell;
   const win = Math.max(buy, sell);
 
-  // STRICTER FILTERS — higher quality signals only
-  // Minimum 7 confluences (was 5), 65% dominance (was 60%)
-  if (win < 7 || total < 7) return null;
-  if (win / total < 0.65) return null;
+  // ULTRA-STRICT FILTERS — elite signals only
+  // Minimum 10 confluences, 72% dominance
+  if (win < 10 || total < 10) return null;
+  if (win / total < 0.72) return null;
 
   const type = buy > sell ? "BUY" : "SELL";
 
@@ -958,16 +954,17 @@ function analyzeWithTA(pair: string, price: number, candles: any[], ta: TAIndica
   // ADX trend requirement: if ADX available, need some trend
   if (ta?.adx && ta.adx.adx < 15) return null; // No trend = no trade
 
-  // Confidence: more realistic calculation
+  // Confidence: strict calculation with high bar
   const rawConf = (win / total) * 100;
   // Bonus scales with number of confluences beyond minimum
-  const confBonus = Math.min((win - 7) * 1.5, 8);
-  // TA data bonus (but smaller)
-  const taBonus = ta ? 2 : 0;
-  const conf = Math.min(Math.round(rawConf + confBonus + taBonus), 95);
+  const confBonus = Math.min((win - 10) * 1.2, 6);
+  // TA data bonus (only if many TA indicators present)
+  const taIndicatorCount = ta ? Object.keys(ta).length : 0;
+  const taBonus = taIndicatorCount >= 8 ? 3 : taIndicatorCount >= 5 ? 1.5 : 0;
+  const conf = Math.min(Math.round(rawConf + confBonus + taBonus), 97);
 
-  // Minimum confidence 80% (was 75%)
-  if (conf < 80) return null;
+  // Minimum confidence 85% — only elite signals pass
+  if (conf < 85) return null;
 
   // ═══ 5-MIN SCALPING TP/SL ═══
   // 5-minute trade duration: TP must be reachable within 1-3 candles
@@ -996,8 +993,8 @@ function analyzeWithTA(pair: string, price: number, candles: any[], ta: TAIndica
     source: "RapidAPI",
     apiSource: src,
     apiKey: key,
-    engineVersion: "v3.1-TA",
-    tradeDuration: "5min",
+    engineVersion: "v4.0-ELITE",
+    tradeDuration: "5-10min",
     tpPips: Math.abs(finalTP - price),
     slPips: Math.abs(price - finalSL),
   };
@@ -1080,21 +1077,22 @@ export async function GET() {
       await new Promise(r => setTimeout(r, 350));
     }
 
-    // Sort by confidence
+    // Sort by confidence (highest first)
     signals.sort((a, b) => b.confidence - a.confidence);
-    const topSignals = signals.slice(0, 6);
+    // ONLY TOP 2 — the strongest signals
+    const topSignals = signals.slice(0, 2);
 
     if (topSignals.length > 0) { cachedSignals = topSignals; lastSignalTime = Date.now(); }
 
     return NextResponse.json({
-      source: topSignals.length > 0 ? "RapidAPI (Precision Engine v3.1 + 20 TA Indicators)" : "no-qualifying-signals",
-      signals: topSignals.length > 0 ? topSignals : cachedSignals,
+      source: topSignals.length > 0 ? "RapidAPI (Elite Engine v4.0 + 20 TA Indicators)" : "scanning",
+      signals: topSignals.length > 0 ? topSignals : [],
       generated: topSignals.length,
       totalChecked: PAIRS.length,
       apiStats: api.stats,
-      engineVersion: "v3.1-TA",
+      engineVersion: "v4.0-ELITE",
     });
   } catch {
-    return NextResponse.json({ source: "error", signals: cachedSignals, apiStats: api.stats });
+    return NextResponse.json({ source: "error", signals: cachedSignals, apiStats: api.stats, engineVersion: "v4.0-ELITE" });
   }
 }
