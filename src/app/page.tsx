@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
-import { TrendingUp, TrendingDown, Activity, Target, ShieldAlert, Clock, Zap, BarChart3, Trophy, ArrowUpRight, ArrowDownRight, Signal, Wifi, WifiOff, RefreshCw, Brain, Gauge, Star, ChevronDown, ChevronUp, X, Newspaper, LineChart, Bitcoin, Radio, Power, Globe, Flame, Timer, ArrowRightLeft } from "lucide-react";
+import { TrendingUp, TrendingDown, Activity, Target, ShieldAlert, Clock, Zap, BarChart3, Trophy, ArrowUpRight, ArrowDownRight, Signal, Wifi, WifiOff, RefreshCw, Brain, Gauge, Star, ChevronDown, ChevronUp, X, Newspaper, LineChart, Bitcoin, Radio, Power, Globe, Flame, Timer, ArrowRightLeft, LayoutGrid } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,6 +23,7 @@ import { playSignalSound, sendBrowserNotification } from "@/components/forex/not
 import { MarketNews } from "@/components/forex/market-news";
 import { StockPrices } from "@/components/stocks/stock-prices";
 import { CryptoSignals } from "@/components/crypto/crypto-signals";
+import { FinvizDashboard } from "@/components/finviz/finviz-dashboard";
 
 /* ─Types ─*/
 interface ForexSignal {
@@ -686,6 +687,9 @@ export default function Home() {
             <TabsTrigger value="heatmap" className="data-[state=active]:bg-orange-500/20 data-[state=active]:text-orange-500 text-xs">
               <span className="flex items-center gap-1.5"><Flame className="h-4 w-4" />Heatmap</span>
             </TabsTrigger>
+            <TabsTrigger value="finviz" className="data-[state=active]:bg-blue-500/20 data-[state=active]:text-blue-500 text-xs">
+              <span className="flex items-center gap-1.5"><LayoutGrid className="h-4 w-4" />Finviz</span>
+            </TabsTrigger>
           </TabsList>
 
           {/* Active Signals */}
@@ -802,6 +806,11 @@ export default function Home() {
           {/* Currency Strength Heatmap */}
           <TabsContent value="heatmap">
             <CurrencyHeatmap prices={prices} />
+          </TabsContent>
+
+          {/* Finviz Market Data */}
+          <TabsContent value="finviz">
+            <FinvizDashboard />
           </TabsContent>
         </Tabs>
       </main>}

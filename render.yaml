@@ -76,3 +76,7 @@ services:
         sync: false
       - key: FINANCECORE_API_HOST
         value: financecore-api.p.rapidapi.com
+      - key: FINVIZ_API_KEY
+        sync: false
+      - key: FINVIZ_API_HOST
+        value: finviz-data-api.p.rapidapi.com
