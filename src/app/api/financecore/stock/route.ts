@@ -60,7 +60,6 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ source: "FinanceCore", count: stocks.length, stocks });
   } catch (err: any) {
-    console.error("[FinanceCore Stock]", err.message);
     return NextResponse.json({ error: err.message, source: "FinanceCore" }, { status: 502 });
   }
 }

@@ -52,7 +52,6 @@ export async function GET() {
     cached = { data, ts: Date.now() };
     return NextResponse.json(data);
   } catch (error) {
-    console.error("[News API Error]", error);
     if (cached) return NextResponse.json(cached.data);
     return NextResponse.json({ news: [], mood: null, fallback: true });
   }

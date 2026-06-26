@@ -81,7 +81,6 @@ class DualApiManager {
     const k = allKeys.find(x => x.id === keyId);
     if (k) {
       k.limitedUntil = Date.now() + secs * 1000;
-      console.log(`[API] ${keyId} rate limited for ${secs}s`);
     }
   }
 
@@ -140,8 +139,6 @@ class DualApiManager {
 }
 
 const api = new DualApiManager();
-console.log(`[Prices API] TD keys: ${api.stats.tdKeys}, AV keys: ${api.stats.avKeys}`);
-
 /* ─── Data Fetchers ─── */
 
 // Alpha Vantage exchange rate
@@ -261,7 +258,6 @@ export async function GET() {
       },
     });
   } catch (error) {
-    console.error("[Prices] Error:", error);
     return NextResponse.json({ source: "error", liveCount: 0, total: PAIRS.length, prices: [] }, { status: 500 });
   }
 }

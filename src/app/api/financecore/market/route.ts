@@ -35,7 +35,6 @@ export async function GET() {
 
     return NextResponse.json(result);
   } catch (err: any) {
-    console.error("[FinanceCore Market]", err.message);
     return NextResponse.json({ error: err.message, source: "FinanceCore" }, { status: 502 });
   }
 }

@@ -56,7 +56,6 @@ export async function GET(req: NextRequest) {
       converted: amount * rate,
     });
   } catch (err: any) {
-    console.error("[FinanceCore Convert]", err.message);
     return NextResponse.json({ error: err.message, source: "FinanceCore" }, { status: 502 });
   }
 }

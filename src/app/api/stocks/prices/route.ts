@@ -120,7 +120,6 @@ function normalizePriceData(raw: any, ticker: string, range: Range): StockData |
       timestamp: new Date().toISOString(),
     };
   } catch (e) {
-    console.error(`[StockAPI] Parse error for ${ticker}:`, e);
     return null;
   }
 }
@@ -133,7 +132,6 @@ async function fetchStockPrice(ticker: string, range: Range): Promise<StockData 
   }
 
   if (!STOCK_API_KEY) {
-    console.warn("[StockAPI] No API key configured");
     return null;
   }
 
@@ -150,11 +148,9 @@ async function fetchStockPrice(ticker: string, range: Range): Promise<StockData 
     });
 
     if (res.status === 429) {
-      console.warn(`[StockAPI] Rate limited for ${ticker}`);
       return null;
     }
     if (!res.ok) {
-      console.error(`[StockAPI] Error ${res.status} for ${ticker}`);
       return null;
     }
 
@@ -167,7 +163,6 @@ async function fetchStockPrice(ticker: string, range: Range): Promise<StockData 
 
     return data;
   } catch (e) {
-    console.error(`[StockAPI] Fetch error for ${ticker}:`, e);
     return null;
   }
 }

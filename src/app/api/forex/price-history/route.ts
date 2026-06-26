@@ -77,7 +77,6 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ error: "No price history available", pair }, { status: 503 });
   } catch (error) {
-    console.error("[Price History Error]", error);
     // Return cached if available even if stale
     const { searchParams } = new URL(req.url);
     const pair = searchParams.get("pair") || "EUR/USD";

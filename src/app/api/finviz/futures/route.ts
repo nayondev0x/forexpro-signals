@@ -27,7 +27,6 @@ export async function GET() {
     cached = { data: result, ts: Date.now() };
     return NextResponse.json(result);
   } catch (err: any) {
-    console.error("[Finviz Futures]", err.message);
     return NextResponse.json({ error: err.message, source: "Finviz" }, { status: 502 });
   }
 }

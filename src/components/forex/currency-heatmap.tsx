@@ -129,7 +129,7 @@ export function CurrencyHeatmap({ prices }: { prices: PriceData[] }) {
               Loading market data...
             </div>
           ) : (
-            <div className="grid grid-cols-4 gap-2 sm:grid-cols-4 md:grid-cols-8">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-8">
               {sortedCurrencies.map((ccy, idx) => {
                 const val = strengthMap[ccy] || 0;
                 return (

@@ -210,13 +210,10 @@ export async function GET(req: NextRequest) {
     // ─── Source 1: TradingEconomics (primary, richer data) ───
     if (TE_KEY) {
       try {
-        console.log("[Calendar] Fetching from TradingEconomics...");
         const rawEvents = await fetchTEAllCountries();
         events = rawEvents.map(normalizeTEEvent).filter(e => e.event && e.event !== "Unknown" && e.date);
         source = "TradingEconomics";
-        console.log(`[Calendar] TE returned ${events.length} events`);
       } catch (e) {
-        console.error("[Calendar] TradingEconomics failed:", e);
         teFailed = true;
       }
     }
@@ -224,7 +221,6 @@ export async function GET(req: NextRequest) {
     // ─── Source 2: Trader-Calendar (fallback) ───
     if (events.length === 0 && TC_KEY) {
       try {
-        console.log("[Calendar] Falling back to TraderCalendar...");
         const rawEvents = await fetchTCCalendar();
         events = rawEvents.map(normalizeTCEvent);
         // Deduplicate by event name+currency
@@ -236,9 +232,7 @@ export async function GET(req: NextRequest) {
           return e.event && e.event !== "Unknown" && e.date;
         });
         source = "TraderCalendar";
-        console.log(`[Calendar] TC returned ${events.length} events`);
       } catch (e) {
-        console.error("[Calendar] TraderCalendar failed:", e);
         tcFailed = true;
       }
     }
@@ -268,7 +262,6 @@ export async function GET(req: NextRequest) {
     filteredEvents = applyFilters(filteredEvents, filterCountry, filterImpact);
     return NextResponse.json({ ...data, events: filteredEvents });
   } catch (error) {
-    console.error("[Calendar API Error]", error);
     if (cached) return NextResponse.json(cached.data);
     return NextResponse.json({ events: [], fallback: true, message: "Failed to fetch calendar" });
   }

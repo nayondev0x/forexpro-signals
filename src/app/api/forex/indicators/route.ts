@@ -13,7 +13,6 @@ export async function GET(request: Request) {
     const data = await getPairIndicators(pair);
     return NextResponse.json(data);
   } catch (error) {
-    console.error("Indicators API error:", error);
     return NextResponse.json({ error: "Failed to fetch indicators" }, { status: 500 });
   }
 }

@@ -163,7 +163,7 @@
 ```
 src/
 ├── app/
-│   ├── page.tsx                    # মেইন SPA (১২টি ট্যাব)
+│   ├── page.tsx                    # মেইন SPA অর্কেস্ট্রেটর (১২টি ট্যাব)
 │   ├── layout.tsx                  # রুট লেআউট + থিম
 │   └── api/                        # ৩৩টি API রাউট
 │       ├── forex/
@@ -201,15 +201,18 @@ src/
 │           ├── screener/           # স্টক স্ক্রিনার
 │           └── autocomplete/       # টিকার সার্চ
 ├── components/
-│   ├── forex/                      # ৯টি ফরেক্স কম্পোনেন্ট
+│   ├── forex/                      # ২০টি ফরেক্স কম্পোনেন্ট (modular)
 │   ├── stocks/                     # স্টক প্রাইস কম্পোনেন্ট
 │   ├── crypto/                     # ক্রিপ্টো সিগন্যাল কম্পোনেন্ট
 │   ├── finviz/                     # Finviz ড্যাশবোর্ড কম্পোনেন্ট
+│   ├── error-boundary.tsx          # React Error Boundary
 │   └── ui/                         # ৫০+ shadcn/ui কম্পোনেন্ট
 ├── stores/
 │   └── forex-store.ts              # Zustand পার্সিস্টেড স্টোর
 ├── lib/
 │   ├── rapidapi.ts                 # ৮-কী ডুয়াল API ম্যানেজার
+│   ├── forex-types.ts              # TypeScript ইন্টারফেস (Signal, Price)
+│   ├── forex-helpers.ts            # শেয়ার্ড ইউটিলিটি ফাংশন
 │   ├── utils.ts                    # ইউটিলিটি ফাংশন
 │   └── db.ts                       # ডাটাবেস কনফিগ
 render.yaml                         # Render অটো-ডেপ্লয় (১২ সার্ভিস env vars)

@@ -1,14 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import {
   Activity,
   BarChart3,
   Trophy,
-  ArrowUpRight,
-  ArrowDownRight,
-  Power,
-  Radio,
   Bitcoin,
   Flame,
   LayoutGrid,
@@ -18,13 +14,9 @@ import {
   Clock,
   Target,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { useForexStore } from "@/stores/forex-store";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { SiteHeader } from "@/components/forex/site-header";
@@ -34,7 +26,6 @@ import { PriceTickerBar } from "@/components/forex/price-ticker-bar";
 import { StatsCards } from "@/components/forex/stats-cards";
 import { SignalCard } from "@/components/forex/signal-card";
 import { CurrencyHeatmap } from "@/components/forex/currency-heatmap";
-import { ConfidenceBar } from "@/components/forex/confidence-bar";
 import { ControlsBar } from "@/components/forex/controls-bar";
 import { PriceChart } from "@/components/forex/price-chart";
 import { RiskCalculator } from "@/components/forex/risk-calculator";
@@ -45,11 +36,13 @@ import { MarketNews } from "@/components/forex/market-news";
 import { StockPrices } from "@/components/stocks/stock-prices";
 import { CryptoSignals } from "@/components/crypto/crypto-signals";
 import { FinvizDashboard } from "@/components/finviz/finviz-dashboard";
+import { OffBanner } from "@/components/forex/off-banner";
+import { SignalHistory } from "@/components/forex/signal-history";
+import { MarketWatch } from "@/components/forex/market-watch";
 import {
   SignalCardSkeleton,
-  PriceCardSkeleton,
   StatsCardSkeleton,
-  TableSkeleton,
+  PriceCardSkeleton,
   ChartSkeleton,
   HeatmapSkeleton,
 } from "@/components/forex/loading-skeletons";
@@ -57,7 +50,7 @@ import {
   playSignalSound,
   sendBrowserNotification,
 } from "@/components/forex/notification-sound";
-import { formatTime, formatPrice, getSessionAtTime } from "@/lib/forex-helpers";
+import { getSessionAtTime } from "@/lib/forex-helpers";
 import type { ForexSignal, PriceData } from "@/lib/forex-types";
 
 export default function Home() {
@@ -67,7 +60,6 @@ export default function Home() {
   const [dataSource, setDataSource] = useState<string>("connecting");
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
-  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
   const {
     autoRefresh,
@@ -173,7 +165,6 @@ export default function Home() {
     if (autoRefresh) {
       const pi = setInterval(fetchPrices, 30000);
       const si = setInterval(fetchSignals, 20000);
-      pollingRef.current = si;
       return () => {
         clearInterval(pi);
         clearInterval(si);
@@ -202,33 +193,8 @@ export default function Home() {
         signalCount={signals.length}
       />
 
-      {/* OFF State Banner */}
-      {!tradingMode && (
-        <div className="flex flex-col items-center justify-center gap-3 py-20 px-4">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-800/80 border border-zinc-700/50">
-            <Power className="h-8 w-8 text-zinc-500" />
-          </div>
-          <h2 className="text-lg font-semibold text-zinc-400">
-            Trading Mode is OFF
-          </h2>
-          <p className="text-sm text-zinc-500 text-center max-w-md">
-            Zero API calls. Free tier is not being used.
-            <br />
-            Turn on{" "}
-            <span className="text-emerald-500 font-semibold">LIVE</span> when
-            you&apos;re ready to trade.
-          </p>
-          <Button
-            onClick={() => setTradingMode(true)}
-            className="mt-2 bg-emerald-600 hover:bg-emerald-500 text-white gap-2"
-          >
-            <Radio className="size-4" />
-            Start Trading
-          </Button>
-        </div>
-      )}
+      {!tradingMode && <OffBanner onActivate={() => setTradingMode(true)} />}
 
-      {/* Main Content — only show when trading mode ON */}
       {tradingMode && (
         <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6">
           <ErrorBoundary>
@@ -374,110 +340,11 @@ export default function Home() {
             {/* History */}
             <TabsContent value="history">
               <ErrorBoundary>
-                {completedSignals.length === 0 ? (
-                  <Card className="border-border/20 bg-card/40">
-                    <CardContent className="flex flex-col items-center justify-center py-16">
-                      <BarChart3 className="mb-4 h-12 w-12 text-muted-foreground/30" />
-                      <p className="text-lg font-medium text-muted-foreground">
-                        No signal history yet
-                      </p>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <Card className="border-border/30 bg-card/80 backdrop-blur">
-                    <CardHeader className="pb-2">
-                      <p className="text-sm font-medium text-muted-foreground">
-                        Signal Performance History
-                      </p>
-                    </CardHeader>
-                    <CardContent className="p-0">
-                      <ScrollArea className="max-h-96">
-                        <Table>
-                          <TableHeader>
-                            <TableRow className="border-border/30 hover:bg-transparent">
-                              <TableHead className="text-xs">ID</TableHead>
-                              <TableHead className="text-xs">Pair</TableHead>
-                              <TableHead className="text-xs">Type</TableHead>
-                              <TableHead className="text-xs text-right">Entry</TableHead>
-                              <TableHead className="text-xs text-right">TP</TableHead>
-                              <TableHead className="text-xs text-right">SL</TableHead>
-                              <TableHead className="text-xs">Conf</TableHead>
-                              <TableHead className="text-xs">Session</TableHead>
-                              <TableHead className="text-xs">Status</TableHead>
-                              <TableHead className="text-xs text-right">Pips</TableHead>
-                              <TableHead className="text-xs">Time</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {completedSignals.map((s) => (
-                              <TableRow
-                                key={s.id}
-                                className="border-border/20 cursor-pointer hover:bg-muted/50"
-                                onClick={() => setSelectedSignalId(s.id)}
-                              >
-                                <TableCell className="font-mono text-[10px] text-muted-foreground">
-                                  {s.id.substring(0, 12)}
-                                </TableCell>
-                                <TableCell className="text-xs font-bold text-foreground">
-                                  {s.pair}
-                                </TableCell>
-                                <TableCell>
-                                  <Badge
-                                    variant="outline"
-                                    className={`text-[10px] font-bold ${s.type === "BUY" ? "border-emerald-500/30 text-emerald-500" : "border-rose-500/30 text-rose-500"}`}
-                                  >
-                                    {s.type}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="text-right font-mono text-xs">
-                                  {formatPrice(s.entry, s.pair)}
-                                </TableCell>
-                                <TableCell className="text-right font-mono text-xs text-emerald-500">
-                                  {formatPrice(s.tp, s.pair)}
-                                </TableCell>
-                                <TableCell className="text-right font-mono text-xs text-rose-500">
-                                  {formatPrice(s.sl, s.pair)}
-                                </TableCell>
-                                <TableCell className="text-xs">
-                                  {s.confidence ? (
-                                    <ConfidenceBar confidence={s.confidence} />
-                                  ) : (
-                                    "--"
-                                  )}
-                                </TableCell>
-                                <TableCell>
-                                  <Badge
-                                    variant="outline"
-                                    className="text-[9px] border-border/30 text-muted-foreground"
-                                  >
-                                    {getSessionAtTime(s.timestamp)}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell>
-                                  <Badge
-                                    variant="outline"
-                                    className={`text-[10px] font-bold ${s.status === "TP_HIT" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500" : "border-rose-500/30 bg-rose-500/10 text-rose-500"}`}
-                                  >
-                                    {s.status === "TP_HIT" ? "TP HIT" : "SL HIT"}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell
-                                  className={`text-right font-mono text-xs font-bold ${(s.pips || 0) > 0 ? "text-emerald-500" : "text-rose-500"}`}
-                                >
-                                  {(s.pips || 0) > 0 ? "+" : ""}
-                                  {s.pips || 0}
-                                </TableCell>
-                                <TableCell className="text-[10px] text-muted-foreground">
-                                  {formatTime(s.timestamp)}
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </ScrollArea>
-                    </CardContent>
-                  </Card>
-                )}
+                <SignalHistory
+                  signals={completedSignals}
+                  onSelectSignal={setSelectedSignalId}
+                  sessionFilter={sessionFilter}
+                />
               </ErrorBoundary>
             </TabsContent>
 
@@ -490,85 +357,8 @@ export default function Home() {
                       <PriceCardSkeleton key={i} />
                     ))}
                   </div>
-                ) : filteredPrices.length === 0 ? (
-                  <Card className="border-border/20 bg-card/40">
-                    <CardContent className="flex flex-col items-center justify-center py-16">
-                      <TrendingUp className="mb-4 h-12 w-12 text-muted-foreground/30" />
-                      <p className="text-lg font-medium text-muted-foreground">
-                        Loading market data...
-                      </p>
-                    </CardContent>
-                  </Card>
                 ) : (
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                    {filteredPrices.map((p) => (
-                      <Card
-                        key={p.pair}
-                        className="border-border/30 bg-card/80 backdrop-blur transition-colors hover:border-foreground/20 cursor-pointer"
-                        onClick={() => {
-                          useForexStore.getState().setSelectedPair(p.pair);
-                          useForexStore.getState().setActiveTab("chart");
-                        }}
-                      >
-                        <CardContent className="p-4">
-                          <div className="mb-2 flex items-center justify-between">
-                            <div className="flex items-center gap-1.5">
-                              <h3 className="text-sm font-bold text-foreground">
-                                {p.pair}
-                              </h3>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  useForexStore
-                                    .getState()
-                                    .toggleFavorite(p.pair);
-                                }}
-                                className="p-0.5 hover:bg-muted rounded"
-                              >
-                                <Star
-                                  className={`h-3 w-3 ${useForexStore.getState().isFavorite(p.pair) ? "fill-amber-400 text-amber-400" : "text-muted-foreground/40"}`}
-                                />
-                              </button>
-                            </div>
-                            <span
-                              className={`text-xs font-bold ${p.changePercent >= 0 ? "text-emerald-500" : "text-rose-500"}`}
-                            >
-                              {p.changePercent >= 0 ? "+" : ""}
-                              {p.changePercent.toFixed(3)}%
-                            </span>
-                          </div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                                Bid
-                              </p>
-                              <p className="font-mono text-sm font-bold text-foreground">
-                                {formatPrice(p.bid, p.pair)}
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                                Ask
-                              </p>
-                              <p className="font-mono text-sm font-bold text-foreground">
-                                {formatPrice(p.ask, p.pair)}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="mt-2 flex items-center justify-between border-t border-border/20 pt-2">
-                            <span className="text-[10px] text-muted-foreground">
-                              Spread: {p.spread}
-                            </span>
-                            {p.changePercent >= 0 ? (
-                              <ArrowUpRight className="h-4 w-4 text-emerald-500" />
-                            ) : (
-                              <ArrowDownRight className="h-4 w-4 text-rose-500" />
-                            )}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
+                  <MarketWatch prices={filteredPrices} />
                 )}
               </ErrorBoundary>
             </TabsContent>
