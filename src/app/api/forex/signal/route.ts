@@ -966,15 +966,17 @@ function analyzeWithTA(pair: string, price: number, candles: any[], ta: TAIndica
   // Minimum confidence 85% — only elite signals pass
   if (conf < 85) return null;
 
-  // ═══ 5-MIN SCALPING TP/SL ═══
-  // 5-minute trade duration: TP must be reachable within 1-3 candles
-  // Ultra signal (90%+): TP 1.5x ATR, SL 0.5x ATR → 3:1 reward (avg ~5min)
-  // Strong signal (85%+): TP 1.2x ATR, SL 0.5x ATR → 2.4:1 reward (avg ~4min)
-  // Medium signal (75-84%): TP 1x ATR, SL 0.7x ATR → 1.5:1 reward (avg ~5min)
+  // ═══ TP/SL — BIG TP, TIGHT SL ═══
+  // SL always tight (0.4-0.5x ATR), TP scales with confidence
+  // 95%+ : TP 2.5x ATR, SL 0.4x ATR → 6:1 reward
+  // 92%+ : TP 2.0x ATR, SL 0.4x ATR → 5:1 reward
+  // 88%+ : TP 1.8x ATR, SL 0.5x ATR → 3.6:1 reward
+  // 85%+ : TP 1.5x ATR, SL 0.5x ATR → 3:1 reward
   let tpMult: number, slMult: number;
-  if (conf >= 90) { tpMult = 1.5; slMult = 0.5; }
-  else if (conf >= 85) { tpMult = 1.2; slMult = 0.5; }
-  else { tpMult = 1.0; slMult = 0.7; }
+  if (conf >= 95) { tpMult = 2.5; slMult = 0.4; }
+  else if (conf >= 92) { tpMult = 2.0; slMult = 0.4; }
+  else if (conf >= 88) { tpMult = 1.8; slMult = 0.5; }
+  else { tpMult = 1.5; slMult = 0.5; }
 
   const finalTP = type === "BUY" ? price + atr * tpMult : price - atr * tpMult;
   const finalSL = type === "BUY" ? price - atr * slMult : price + atr * slMult;
