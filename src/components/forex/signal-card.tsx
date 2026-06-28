@@ -177,14 +177,17 @@ export function SignalCard({
                 <h3 className="text-base font-black text-foreground">
                   {signal.pair}
                 </h3>
-                {signal.source === "RapidAPI" && (
+                {signal.source && (
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger>
                         <Wifi className="h-3 w-3 text-emerald-500" />
                       </TooltipTrigger>
-                      <TooltipContent className="text-xs">
-                        Real API Data
+                      <TooltipContent className="text-xs max-w-48">
+                        <p className="font-bold">{signal.source}</p>
+                        {signal.layers?.length > 0 && signal.layers.map((l: any, i: number) => (
+                          <p key={i} className="text-muted-foreground">{l.layer}: {l.score > 0 ? '+' : ''}{l.score}</p>
+                        ))}
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
@@ -381,8 +384,24 @@ export function SignalCard({
               variant="outline"
               className="border-violet-500/30 bg-violet-500/10 text-[9px] font-bold text-violet-400"
             >
-              v4.0
+              v5.0
             </Badge>
+            {signal.confluences && (
+              <Badge
+                variant="outline"
+                className="border-cyan-500/30 bg-cyan-500/10 text-[9px] font-bold text-cyan-400"
+              >
+                {signal.confluences} confluences
+              </Badge>
+            )}
+            {signal.rewardRatio && (
+              <Badge
+                variant="outline"
+                className="border-amber-500/30 bg-amber-500/10 text-[9px] font-bold text-amber-400"
+              >
+                {signal.rewardRatio}:1 R:R
+              </Badge>
+            )}
           </div>
           {isActive && livePips === null ? (
             <div className="flex items-center gap-1.5">

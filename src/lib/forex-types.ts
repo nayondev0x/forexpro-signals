@@ -20,6 +20,9 @@ export interface ForexSignal {
   tpPips?: number;
   slPips?: number;
   engineVersion?: string;
+  confluences?: number;
+  layers?: Array<{ layer: string; score: number; details: string[] }>;
+  rewardRatio?: string;
 }
 
 export interface PriceData {

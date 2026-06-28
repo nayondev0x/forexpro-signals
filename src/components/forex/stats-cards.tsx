@@ -89,7 +89,7 @@ export function StatsCards({
                 variant="outline"
                 className="ml-2 border-emerald-500/30 text-[10px] text-emerald-500"
               >
-                Elite Engine v4.0 + 28 Indicators + 9 Pairs
+                Power Engine v5.0 — Multi-Source Fusion + 12 Pairs
               </Badge>
             </>
           ) : (
