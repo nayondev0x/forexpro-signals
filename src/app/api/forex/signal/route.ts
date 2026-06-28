@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 
 /* ═══════════════════════════════════════════════════════════
-   PRECISION SIGNAL ENGINE v4.0-ELITE — TOP 2 ONLY
+   PRECISION SIGNAL ENGINE v4.1-ELITE — TOP 2 ONLY
    - 8+ local indicators (candlestick, EMA, RSI, MACD, etc.)
    - 20 external Crypto TA API indicators
+   - Forex Signals API cross-validation (MT auth + signals)
    - ULTRA-STRICT: 85%+ confidence, 10+ confluences required
    - Only TOP 2 strongest signals output
    - 5-10 min auto-expiry with TP/SL live check
@@ -96,6 +97,53 @@ class DualApiManager {
 }
 
 const api = new DualApiManager();
+
+/* ═══════════════════════════════════════════════════════════
+   FOREX SIGNALS API — Cross-Validation Layer (Host #12)
+   Provides external signal confirmation from forex-signals-api
+   ═══════════════════════════════════════════════════════════ */
+
+const FOREX_SIGNALS_KEY = process.env.FOREX_SIGNALS_API_KEY || "";
+const FOREX_SIGNALS_HOST = process.env.FOREX_SIGNALS_API_HOST || "forex-signals-api.p.rapidapi.com";
+
+let forexApiSignalCache: { signals: any[]; time: number } | null = null;
+const FOREX_API_CACHE_TTL = 60000; // 1 min
+
+async function fetchForexApiSignals(): Promise<any[]> {
+  if (!FOREX_SIGNALS_KEY) return [];
+  const cached = forexApiSignalCache;
+  if (cached && Date.now() - cached.time < FOREX_API_CACHE_TTL) return cached.signals;
+  try {
+    const res = await fetch(`https://${FOREX_SIGNALS_HOST}/forex-signals.php`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-rapidapi-key": FOREX_SIGNALS_KEY, "x-rapidapi-host": FOREX_SIGNALS_HOST },
+      body: JSON.stringify({ client_instance_id: crypto.randomUUID() }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const sigs = Array.isArray(data?.signals) ? data.signals : (Array.isArray(data?.data) ? data.data : []);
+    forexApiSignalCache = { signals: sigs, time: Date.now() };
+    return sigs;
+  } catch { return []; }
+}
+
+// Check if a pair+direction matches any external forex signal
+function checkForexApiConfluence(pair: string, type: "BUY" | "SELL", externalSignals: any[]): { match: boolean; bonus: number; reason: string } {
+  if (externalSignals.length === 0) return { match: false, bonus: 0, reason: "" };
+  const normalizedPair = pair.replace("/", "").toUpperCase();
+  for (const sig of externalSignals) {
+    const sigPair = (sig.pair || sig.symbol || sig.PAIR || "").replace("/", "").toUpperCase();
+    const sigType = (sig.type || sig.direction || sig.TYPE || sig.signal_type || "").toUpperCase();
+    if (sigPair.includes(normalizedPair.split("USD")[0]) || normalizedPair.includes(sigPair.split("USD")[0])) {
+      if ((type === "BUY" && (sigType.includes("BUY") || sigType.includes("LONG") || sigType.includes("CALL")))
+        || (type === "SELL" && (sigType.includes("SELL") || sigType.includes("SHORT") || sigType.includes("PUT")))) {
+        return { match: true, bonus: 2, reason: `ForexAPI confirms ${type} on ${pair}` };
+      }
+    }
+  }
+  return { match: false, bonus: 0, reason: "" };
+}
 
 /* ═══════════════════════════════════════════════════════════
    CRYPTO TA API MANAGER — 20 External Indicators
@@ -1053,6 +1101,9 @@ export async function GET() {
 
   try {
     const signals: any[] = [];
+
+    // ─── PHASE 0: Fetch Forex Signals API for cross-validation (cached 1min) ───
+    const externalForexSignals = await fetchForexApiSignals();
 
     // ─── PHASE 1: Fetch all prices (cached 30s) ───
     const priceResults: { pair: string; from: string; to: string; price: number; src: string; key: string }[] = [];
