@@ -299,10 +299,10 @@ export function SignalCard({
               </div>
             </div>
 
-            {/* Countdown Timer (7 min = 420s) */}
+            {/* Countdown Timer (15 min = 900s) */}
             <CountdownTimer
               signalTimestamp={signal.timestamp}
-              durationSec={420}
+              durationSec={900}
             />
           </div>
         )}

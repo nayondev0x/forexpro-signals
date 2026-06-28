@@ -61,7 +61,7 @@ import {
 import { getSessionAtTime, calcPips, formatPrice } from "@/lib/forex-helpers";
 import type { ForexSignal, PriceData } from "@/lib/forex-types";
 
-const SIGNAL_MAX_AGE_MS = 7 * 60 * 1000; // 7 min max — auto expire
+const SIGNAL_MAX_AGE_MS = 15 * 60 * 1000; // 15 min auto expire (M15 chart)
 const SCAN_INTERVAL_MS = 15000; // scan every 15s for new signals
 const PRICE_CHECK_INTERVAL_MS = 5000; // check live prices every 5s for TP/SL
 

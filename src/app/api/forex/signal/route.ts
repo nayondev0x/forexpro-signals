@@ -144,7 +144,7 @@ function pairToTASymbol(from: string, to: string): string {
 async function fetchTAIndicator(symbol: string, endpoint: string, params: string = ""): Promise<any> {
   if (!CRYPTO_TA_KEY) return null;
   try {
-    const url = `https://${CRYPTO_TA_HOST}/${endpoint}?symbol=${symbol}&timeframe=5min${params ? "&" + params : ""}`;
+    const url = `https://${CRYPTO_TA_HOST}/${endpoint}?symbol=${symbol}&timeframe=15min${params ? "&" + params : ""}`;
     const res = await fetch(url, {
       headers: {
         "x-rapidapi-key": CRYPTO_TA_KEY,
@@ -421,7 +421,7 @@ async function fetchPrice(pair: string, from: string, to: string, preferAV: bool
 async function fetchCandles(from: string, to: string) {
   const avHost = process.env.ALPHA_VANTAGE_API_HOST || "alpha-vantage.p.rapidapi.com";
   const { response } = await api.fetchWithFailover(
-    `https://${avHost}/query?function=FX_INTRADAY&from_symbol=${from}&to_symbol=${to}&interval=5min&outputsize=30`, "AV"
+    `https://${avHost}/query?function=FX_INTRADAY&from_symbol=${from}&to_symbol=${to}&interval=15min&outputsize=30`, "AV"
   );
   if (!response?.ok) return [];
   const d = await response.json();
