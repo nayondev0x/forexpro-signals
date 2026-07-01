@@ -20,6 +20,7 @@ import {
   RefreshCw,
   Coins,
   Activity as ActivityIcon,
+  Users,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
@@ -50,6 +51,9 @@ import { SignalHistory } from "@/components/forex/signal-history";
 import { MarketWatch } from "@/components/forex/market-watch";
 import { MarketMovers } from "@/components/forex/market-movers-bloomberg";
 import { CommodityTicker } from "@/components/forex/commodity-ticker";
+import { TradingViewTA } from "@/components/forex/tradingview-ta";
+import { TradingViewCryptoScreener } from "@/components/stocks/tradingview-crypto-screener";
+import { TradingViewAnalystPanel } from "@/components/stocks/tradingview-analyst";
 import {
   SignalCardSkeleton,
   StatsCardSkeleton,
@@ -545,6 +549,21 @@ export default function Home() {
                   <LayoutGrid className="h-4 w-4" />Finviz
                 </span>
               </TabsTrigger>
+              <TabsTrigger value="tv-ta" className="data-[state=active]:bg-violet-500/20 data-[state=active]:text-violet-500 text-xs">
+                <span className="flex items-center gap-1.5">
+                  <Target className="h-4 w-4" />TV Pivots
+                </span>
+              </TabsTrigger>
+              <TabsTrigger value="tv-analyst" className="data-[state=active]:bg-blue-500/20 data-[state=active]:text-blue-500 text-xs">
+                <span className="flex items-center gap-1.5">
+                  <Users className="h-4 w-4" />Analysts
+                </span>
+              </TabsTrigger>
+              <TabsTrigger value="tv-crypto" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-500 text-xs">
+                <span className="flex items-center gap-1.5">
+                  <Bitcoin className="h-4 w-4" />Crypto Scr
+                </span>
+              </TabsTrigger>
             </TabsList>
 
             {/* Active Signals — 2 BIG CARDS */}
@@ -795,6 +814,27 @@ export default function Home() {
             <TabsContent value="finviz">
               <ErrorBoundary>
                 <FinvizDashboard />
+              </ErrorBoundary>
+            </TabsContent>
+
+            {/* TradingView Technical Analysis + Pivot Points */}
+            <TabsContent value="tv-ta">
+              <ErrorBoundary>
+                <TradingViewTA />
+              </ErrorBoundary>
+            </TabsContent>
+
+            {/* TradingView Analyst Recommendations */}
+            <TabsContent value="tv-analyst">
+              <ErrorBoundary>
+                <TradingViewAnalystPanel />
+              </ErrorBoundary>
+            </TabsContent>
+
+            {/* TradingView Crypto Screener */}
+            <TabsContent value="tv-crypto">
+              <ErrorBoundary>
+                <TradingViewCryptoScreener />
               </ErrorBoundary>
             </TabsContent>
           </Tabs>

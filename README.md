@@ -11,8 +11,9 @@
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss)](https://tailwindcss.com/)
 [![shadcn/ui](https://img.shields.io/badge/shadcn%2Fui-latest-black)](https://ui.shadcn.com/)
 [![Render](https://img.shields.io/badge/Render-deployed-4B2FBB?logo=render)](https://forexpro-signals.onrender.com/)
-[![API Routes](https://img.shields.io/badge/API_Routes-33-green)]()
-[![RapidAPI](https://img.shields.io/badge/RapidAPI_Services-12-orange)]()
+[![API Routes](https://img.shields.io/badge/API_Routes-39-green)]()
+[![RapidAPI](https://img.shields.io/badge/RapidAPI_Services-16-orange)]()
+[![Tabs](https://img.shields.io/badge/Dashboard_Tabs-17-violet)]()
 
 **ডেভেলপার: [nayondev](https://github.com/nayondev0x)** | **লাইভ ডেমো:** [forexpro-signals.onrender.com](https://forexpro-signals.onrender.com/)
 
@@ -117,7 +118,7 @@
 - **অটো-রিফ্রেশ** — কনফিগারেবল পোলিং (প্রাইস ৩০সে, সিগন্যাল ২০সে)
 - **নোটিফিকেশন** — ব্রাউজার নোটিফিকেশন + Web Audio সাউন্ড অ্যালার্ট
 - **ফেভারিটস** — পেয়ার স্টার করে দ্রুত অ্যাক্সেস (localStorage-এ সেভ)
-- **১২টি ট্যাব** — Active, History, Market Watch, Live Chart, Performance, Risk Calc, Calendar, News, Stocks, Crypto, Heatmap, Finviz
+- **১৭টি ট্যাব** — Active, History, Market Watch, Live Chart, Performance, Risk Calc, Calendar, News, Movers, Commodities, Stocks, Crypto, Heatmap, Finviz, TV Pivots, Analysts, Crypto Screener
 
 ---
 
@@ -134,7 +135,7 @@
 | অ্যানিমেশন | Framer Motion 12 |
 | আইকন | Lucide React |
 | ফন্ট | Geist Sans / Geist Mono |
-| APIs | ১২টি RapidAPI সার্ভিস (১৬টি কী) |
+| APIs | ১৬টি RapidAPI সার্ভিস (১৬টি কী) |
 | ডেপ্লয়মেন্ট | Render (Free Tier) |
 
 ---
@@ -163,9 +164,9 @@
 ```
 src/
 ├── app/
-│   ├── page.tsx                    # মেইন SPA অর্কেস্ট্রেটর (১২টি ট্যাব)
+│   ├── page.tsx                    # মেইন SPA অর্কেস্ট্রেটর (১৭টি ট্যাব)
 │   ├── layout.tsx                  # রুট লেআউট + থিম
-│   └── api/                        # ৩৩টি API রাউট
+│   └── api/                        # ৩৯টি API রাউট
 │       ├── forex/
 │       │   ├── prices/             # লাইভ ফরেক্স প্রাইস (৮-কী ডুয়াল-API)
 │       │   ├── signal/             # প্রিসিশন সিগন্যাল ইঞ্জিন v3.1-TA (২৮টি ইন্ডিকেটর)
@@ -362,7 +363,7 @@ npm run dev
 
 <div align="center">
 
-**ForexPro Signals** — ১২টি API সার্ভিস, ৩৩টি রাউট, ১২টি ট্যাব — আপনার আঙুলের টিপে রিয়েল-টাইম ট্রেডিং ইন্টেলিজেন্স
+**ForexPro Signals** — ১৬টি API সার্ভিস, ৩৯টি রাউট, ১৭টি ট্যাব — আপনার আঙুলের টিপে রিয়েল-টাইম ট্রেডিং ইন্টেলিজেন্স
 
 **nayondev** দ্বারা তৈরি
 
