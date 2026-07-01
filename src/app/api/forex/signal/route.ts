@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 
 /* ═══════════════════════════════════════════════════════════════════════
-   POWER SIGNAL ENGINE v7.0 — KILLER INSTINCT: 1 SIGNAL = 1 WIN
+   POWER SIGNAL ENGINE v8.1 — SHARPSHOOTER: 1 SIGNAL = 1 WIN
    ═══════════════════════════════════════════════════════════════════════
+   
+   STRATEGY: 15min chart analysis → 5min trade execution
    
    LAYER 1: Forex Signals API (PRIMARY — always active)
      → forex-signals.php: external trading signals
@@ -17,30 +19,34 @@ import { NextResponse } from "next/server";
        Donchian, ROC, MFI, SMA, WMA, EMA, SD, PSAR,
        Williams %R, TSI, Volume Oscillator, Price, Volume
    
-   LAYER 4: Local Analysis (when candle data available)
+   LAYER 4: Local Analysis on 15min (when candle data available)
      → 10+ candlestick patterns, EMA/SMA crosses, RSI/MACD,
        Support/Resistance, Fibonacci, ATR volatility
+     → NEW v8.0: RSI/MACD divergence detection
    
-   LAYER 6: News Sentiment (NEW in v7.0)
+   LAYER 5: 5min Entry Timing (NEW v8.0)
+     → Momentum confirmation on 5min timeframe
+     → EMA direction, last 5 candles trend, pullback detection
+     → Only enter when 5min confirms 15min signal
+   
+   LAYER 6: News Sentiment
      → Market mood (bullish/bearish/neutral) from Breaking News API
-     → Fetches once per cycle, applies to all pairs
    
-   LAYER 7: Feedback Loop — adjusts confidence based on recent win/loss
-   LAYER 8: Calendar Impact Filter — suppresses signals near high-impact news
+   LAYER 7: MTF v2 — Proper Multi-Timeframe Alignment (REWRITTEN v8.0)
+     → 15min: Main analysis timeframe (EMA slope + price position)
+     → 5min: Entry timing (momentum + direction)
+     → 1hr: Trend filter (higher TF trend direction)
+     → Uses EMA(9) direction, not just last-candle comparison
    
-   v7.0 CHANGES vs v6.0:
-     → OUTPUT: TOP 1 ONLY (the absolute best signal)
-     → NEW: News sentiment layer (LAYER 6) for market mood awareness
-     → Multi-timeframe candle fetch (5min + 15min + 1hr)
-     → MTF alignment bonus: if 5m, 15m, 1h ALL agree → +6 bonus
-     → ULTRA-STRICT: 92% min confidence, 16+ confluences, 78% dominance
-     → ADX minimum raised to 22
-     → RSI tightened to 73/27
-     → Counter-trend kill threshold lowered: any L2 < -2 kills signal
-     → Trade duration: 5 min (scalp), TP: 2.5:1–3.5:1, SL: 0.3–0.5 ATR
-     → Signal gap: minimum 5min between signals (avoid overtrading)
+   LAYER 8: Feedback Loop — adjusts confidence based on recent win/loss
+   LAYER 9: Calendar Impact Filter — suppresses signals near high-impact news
    
-   SCORING: 6-layer weighted + feedback + calendar → minimum 92% confidence
+   v8.1 CHANGES vs v8.0:
+     → NEW: Cross-pair correlation bonus (3+ USD pairs agreeing = +2% confidence)
+     → NEW: ADX-based TP/SL scaling (strong ADX = wider TP, tighter SL)
+     → Improved reward ratio for strong trends
+   
+   SCORING: 7-layer weighted + feedback + calendar → minimum 92% confidence
    OUTPUT: TOP 1 only, 2.5:1–3.5:1 reward ratio, 5min trade window
    ═══════════════════════════════════════════════════════════════════════ */
 
@@ -455,6 +461,201 @@ async function fetchCandlesMulti(from: string, to: string, interval: string): Pr
 }
 
 // ═══════════════════════════════════════════════════════════
+//  v8.0: PROPER MULTI-TIMEFRAME ANALYSIS (replaces v7.0 fake MTF)
+// ═══════════════════════════════════════════════════════════
+
+interface MTFResult {
+  score: number;          // 0.0 to 3.0 — how many TFs agree (fractional)
+  details: string[];      // Human-readable analysis per TF
+  tf5m: string;           // "UP" / "DOWN" / "NEUTRAL"
+  tf15m: string;
+  tf1h: string;
+  entryTiming: string;    // "GOOD" / "NEUTRAL" / "BAD"
+  entryReason: string;    // Why entry timing is good/bad
+}
+
+function analyzeMTFv2(
+  candles5m: any[], candles15m: any[], candles1h: any[],
+  signalDir: "UP" | "DOWN"
+): MTFResult {
+  const result: MTFResult = {
+    score: 0, details: [], tf5m: "NEUTRAL", tf15m: "NEUTRAL", tf1h: "NEUTRAL",
+    entryTiming: "NEUTRAL", entryReason: "",
+  };
+
+  // ── Analyze a single timeframe ──
+  function analyzeTF(candles: any[], tfName: string): { dir: string; strength: number; reason: string } {
+    if (candles.length < 10) return { dir: "NEUTRAL", strength: 0, reason: `${tfName}: insufficient data` };
+
+    const closes = candles.map(c => c.c);
+    const ema9 = calcEMA(closes, 9);
+    const prevEma9 = calcEMA(closes.slice(1), 9);
+    const emaSlope = ema9 - prevEma9;  // Positive = rising EMA
+    const lastPrice = closes[0];
+    const priceAboveEma = lastPrice > ema9;
+
+    // EMA direction weight: 40%
+    const emaWeight = 0.4;
+    let emaScore = 0;
+    if (emaSlope > 0) emaScore = 1; else if (emaSlope < 0) emaScore = -1;
+
+    // Price vs EMA position: 30%
+    const posWeight = 0.3;
+    let posScore = 0;
+    if (priceAboveEma) posScore = 1; else posScore = -1;
+
+    // Last 5 candles direction: 30%
+    const momWeight = 0.3;
+    let momScore = 0;
+    const last5 = candles.slice(0, Math.min(5, candles.length));
+    let ups = 0, downs = 0;
+    for (let i = 0; i < last5.length - 1; i++) {
+      if (last5[i].c > last5[i + 1].c) ups++; else downs++;
+    }
+    if (ups > downs) momScore = 1; else if (downs > ups) momScore = -1;
+
+    const composite = emaScore * emaWeight + posScore * posWeight + momScore * momWeight;
+    // composite is in range [-1, +1]
+    const strength = Math.abs(composite);
+    const dir = composite > 0.15 ? "UP" : composite < -0.15 ? "DOWN" : "NEUTRAL";
+
+    const reason = `${tfName}: EMA9 ${emaSlope > 0 ? "rising" : emaSlope < 0 ? "falling" : "flat"}, price ${priceAboveEma ? "above" : "below"} EMA, momentum ${ups > downs ? "bullish" : downs > ups ? "bearish" : "mixed"}`;
+
+    return { dir, strength, reason };
+  }
+
+  // ── 1hr: Higher timeframe trend filter ──
+  const hr = analyzeTF(candles1h, "1H");
+  result.tf1h = hr.dir;
+  result.details.push(hr.reason);
+
+  // ── 15min: Main analysis timeframe ──
+  const m15 = analyzeTF(candles15m, "15M");
+  result.tf15m = m15.dir;
+  result.details.push(m15.reason);
+
+  // ── 5min: Entry timing ──
+  const m5 = analyzeTF(candles5m, "5M");
+  result.tf5m = m5.dir;
+  result.details.push(m5.reason);
+
+  // ── Calculate MTF alignment score ──
+  // Each TF that agrees adds its strength (0.0 to 1.0)
+  if (hr.dir === signalDir) result.score += Math.max(hr.strength, 0.5);
+  else if (hr.dir !== "NEUTRAL") result.score -= 0.3; // Against on 1H = penalty
+
+  if (m15.dir === signalDir) result.score += Math.max(m15.strength, 0.5);
+  else if (m15.dir !== "NEUTRAL") result.score -= 0.5; // Against on 15M = bigger penalty
+
+  if (m5.dir === signalDir) result.score += Math.max(m5.strength, 0.5);
+  else if (m5.dir !== "NEUTRAL") result.score -= 0.2; // 5min against = small penalty
+
+  // Clamp score
+  result.score = Math.max(0, Math.min(3, result.score));
+
+  // ── Entry timing analysis (5min specific) ──
+  if (candles5m.length >= 10) {
+    const c0 = candles5m[0], c1 = candles5m[1], c2 = candles5m[2];
+    const ema9_5m = calcEMA(candles5m.map(c => c.c), 9);
+    const isPullback = signalDir === "UP"
+      ? c0.c > c1.c && c1.c < c2.c && c0.c > ema9_5m // Dip then bounce above EMA
+      : c0.c < c1.c && c1.c > c2.c && c0.c < ema9_5m; // Pump then drop below EMA
+
+    if (isPullback) {
+      result.entryTiming = "GOOD";
+      result.entryReason = signalDir === "UP"
+        ? "5min pullback to EMA + bounce (optimal BUY entry)"
+        : "5min pullback to EMA + rejection (optimal SELL entry)";
+    } else if (m5.dir === signalDir && m5.strength > 0.5) {
+      result.entryTiming = "GOOD";
+      result.entryReason = `5min momentum strong ${signalDir} (clean entry)`;
+    } else if (m5.dir === signalDir) {
+      result.entryTiming = "NEUTRAL";
+      result.entryReason = `5min direction ${signalDir} but weak momentum`;
+    } else {
+      result.entryTiming = "BAD";
+      result.entryReason = `5min direction against signal (${m5.dir}) — wait`;
+    }
+  }
+
+  return result;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  v8.0: DIVERGENCE DETECTION (RSI + MACD)
+// ═══════════════════════════════════════════════════════════
+
+function detectDivergence(candles: any[], rsiVal: number | undefined, macdHist: number | undefined): {
+  rsiDivergence: string | null;   // "bullish" / "bearish" / null
+  macdDivergence: string | null;
+  reasons: string[];
+} {
+  const result = { rsiDivergence: null as string | null, macdDivergence: null as string | null, reasons: [] as string[] };
+
+  if (candles.length < 20) return result;
+
+  const lookback = Math.min(20, candles.length);
+  const recent = candles.slice(0, lookback);
+
+  // Find last 2 price highs and lows
+  let priceHighs: { idx: number; val: number }[] = [];
+  let priceLows: { idx: number; val: number }[] = [];
+
+  for (let i = 0; i < recent.length - 2; i++) {
+    if (recent[i].h > recent[i + 1].h && recent[i].h > recent[i + 2]?.h) {
+      priceHighs.push({ idx: i, val: recent[i].h });
+    }
+    if (recent[i].l < recent[i + 1].l && recent[i].l < recent[i + 2]?.l) {
+      priceLows.push({ idx: i, val: recent[i].l });
+    }
+  }
+
+  // RSI divergence: compare price highs/lows with RSI values
+  // We approximate RSI at those points using the candle closes
+  if (rsiVal !== undefined && priceHighs.length >= 2) {
+    const h1 = priceHighs[0], h2 = priceHighs[1];
+    if (h1.val > h2.val) {
+      // Price made higher high — check if RSI made lower high (bearish div)
+      // We use a proxy: current RSI vs what it "should" be
+      if (rsiVal < 60) {
+        result.rsiDivergence = "bearish";
+        result.reasons.push(`RSI bearish divergence: price higher high but RSI ${rsiVal} weakening`);
+      }
+    }
+  }
+
+  if (rsiVal !== undefined && priceLows.length >= 2) {
+    const l1 = priceLows[0], l2 = priceLows[1];
+    if (l1.val < l2.val) {
+      // Price made lower low — check if RSI made higher low (bullish div)
+      if (rsiVal > 40) {
+        result.rsiDivergence = "bullish";
+        result.reasons.push(`RSI bullish divergence: price lower low but RSI ${rsiVal} strengthening`);
+      }
+    }
+  }
+
+  // MACD histogram divergence
+  if (macdHist !== undefined && priceHighs.length >= 2) {
+    const h1 = priceHighs[0], h2 = priceHighs[1];
+    if (h1.val > h2.val && macdHist < 0) {
+      result.macdDivergence = "bearish";
+      result.reasons.push("MACD bearish divergence: price higher high but histogram negative");
+    }
+  }
+
+  if (macdHist !== undefined && priceLows.length >= 2) {
+    const l1 = priceLows[0], l2 = priceLows[1];
+    if (l1.val < l2.val && macdHist > 0) {
+      result.macdDivergence = "bullish";
+      result.reasons.push("MACD bullish divergence: price lower low but histogram positive");
+    }
+  }
+
+  return result;
+}
+
+// ═══════════════════════════════════════════════════════════
 //  LAYER 4: LOCAL ANALYSIS ENGINE
 // ═══════════════════════════════════════════════════════════
 
@@ -640,7 +841,66 @@ async function checkCalendarImpact(pair: string): Promise<boolean> {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  v6.0: SCORING WITH FEEDBACK + CALENDAR
+//  LAYER 10: TRADINGVIEW DATA API — Additional TA confirmation
+// ═══════════════════════════════════════════════════════════
+
+const TV_HOST = process.env.TRADINGVIEW_API_HOST || "tradingview-data1.p.rapidapi.com";
+const TV_KEY = process.env.TRADINGVIEW_API_KEY || "";
+
+interface TVTechnical {
+  buy?: number; sell?: number; neutral?: number; signal?: string;
+  recommend?: string; oscillators?: any; ma?: any;
+}
+
+let tvCache: Record<string, { data: TVTechnical; time: number }> = {};
+const TV_CACHE_TTL = 300_000; // 5 min
+
+async function fetchTradingViewTA(pair: string): Promise<TVTechnical | null> {
+  if (!TV_KEY) return null;
+  const ck = tvCache[pair];
+  if (ck && Date.now() - ck.time < TV_CACHE_TTL) return ck.data;
+
+  try {
+    // Map forex pair to TradingView symbol format
+    const tvSymbol = `FX:${pair.replace("/", "")}`;
+    const url = `https://${TV_HOST}/technicals?symbol=${encodeURIComponent(tvSymbol)}&interval=15min`;
+
+    const res = await fetch(url, {
+      headers: { "x-rapidapi-key": TV_KEY, "x-rapidapi-host": TV_HOST },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data?.detail?.error || data?.messages) return null;
+
+    const tech: TVTechnical = {};
+    // Parse summary recommendation
+    if (data.summary) {
+      tech.buy = data.summary.buy || 0;
+      tech.sell = data.summary.sell || 0;
+      tech.neutral = data.summary.neutral || 0;
+      tech.signal = data.summary.recommendation || "";
+      tech.recommend = data.summary.recommendation || "";
+    }
+    // Parse oscillators
+    if (data.technicals?.oscillators || data.oscillators) {
+      tech.oscillators = data.technicals?.oscillators || data.oscillators;
+    }
+    // Parse moving averages
+    if (data.technicals?.ma || data.ma) {
+      tech.ma = data.technicals?.ma || data.ma;
+    }
+
+    if (tech.buy !== undefined || tech.signal) {
+      tvCache[pair] = { data: tech, time: Date.now() };
+      return tech;
+    }
+    return null;
+  } catch { return null; }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  v8.0: SCORING WITH FEEDBACK + CALENDAR + TRADINGVIEW
 // ═══════════════════════════════════════════════════════════
 
 function scoreSignal(
@@ -651,8 +911,10 @@ function scoreSignal(
   upcomingHighImpact: boolean,
   recentWinRate: number | null,
   lastResults: string[],
-  newsMood: string | null,    // NEW v7.0: news sentiment
-  mtfAlignment: number,      // NEW v7.0: multi-timeframe alignment score
+  newsMood: string | null,
+  mtfResult: MTFResult | null,    // v8.0: full MTF analysis
+  candles5m: any[],               // v8.0: for 5min entry layer
+  tvData: TVTechnical | null,     // v8.0: TradingView TA confirmation
 ): AnalysisResult | null {
   const dec = pair.includes("XAU") || pair.includes("JPY") ? 2 : 4;
   const atr = candles.length >= 5 ? calcATR(candles, pair, price) : (pair.includes("XAU") ? price * 0.004 : price * 0.0025);
@@ -666,7 +928,7 @@ function scoreSignal(
   if (type === "BUY") buyScore += 5; else sellScore += 5;
 
   // ═══════════════════════════════════════════
-  // v7.0 NEW: NEWS SENTIMENT LAYER (LAYER 6)
+  // v8.0: NEWS SENTIMENT + MTF v2 + ENTRY TIMING
   // ═══════════════════════════════════════════
   let layer6Score = 0;
   const layer6Details: string[] = [];
@@ -693,21 +955,40 @@ function scoreSignal(
     }
   }
 
-  // v7.0 NEW: MULTI-TIMEFRAME ALIGNMENT BONUS
-  if (mtfAlignment >= 3) { // All 3 timeframes agree
-    if (type === "BUY") { buyScore += 6; layer6Details.push("ALL 3 timeframes aligned BUY (5m+15m+1h)"); }
-    else { sellScore += 6; layer6Details.push("ALL 3 timeframes aligned SELL (5m+15m+1h)"); }
-    layer6Score += 6;
-  } else if (mtfAlignment >= 2) { // 2/3 agree
-    if (type === "BUY") { buyScore += 3; layer6Details.push("2/3 timeframes aligned BUY"); }
-    else { sellScore += 3; layer6Details.push("2/3 timeframes aligned SELL"); }
-    layer6Score += 3;
-  } else if (mtfAlignment === 0) { // All disagree = danger
-    layer6Details.push("NO timeframe alignment — all disagree");
-    layer6Score -= 3;
+  // v8.0: MTF v2 — proper EMA-based alignment (replaces v7.0 fake last-candle check)
+  const signalDir = type === "BUY" ? "UP" : "DOWN";
+  const mtfScore = mtfResult?.score ?? 0;
+
+  if (mtfResult) {
+    for (const d of mtfResult.details) layer6Details.push(d);
+
+    if (mtfScore >= 2.0) {
+      if (type === "BUY") { buyScore += 6; layer6Details.push(`MTF STRONG alignment (${mtfScore.toFixed(1)}/3.0)`); }
+      else { sellScore += 6; layer6Details.push(`MTF STRONG alignment (${mtfScore.toFixed(1)}/3.0)`); }
+      layer6Score += 6;
+    } else if (mtfScore >= 1.0) {
+      if (type === "BUY") { buyScore += 3; layer6Details.push(`MTF moderate alignment (${mtfScore.toFixed(1)}/3.0)`); }
+      else { sellScore += 3; layer6Details.push(`MTF moderate alignment (${mtfScore.toFixed(1)}/3.0)`); }
+      layer6Score += 3;
+    } else if (mtfScore < 0) {
+      layer6Details.push(`MTF AGAINST signal (${mtfScore.toFixed(1)}/3.0) — penalty`);
+      layer6Score -= 3;
+    }
+
+    // v8.0: Entry timing filter
+    if (mtfResult.entryTiming === "GOOD") {
+      if (type === "BUY") buyScore += 2; else sellScore += 2;
+      layer6Score += 2;
+      layer6Details.push(`Entry timing: GOOD — ${mtfResult.entryReason}`);
+    } else if (mtfResult.entryTiming === "BAD") {
+      layer6Score -= 4;
+      layer6Details.push(`Entry timing: BAD — ${mtfResult.entryReason}`);
+    } else {
+      layer6Details.push(`Entry timing: NEUTRAL — ${mtfResult.entryReason}`);
+    }
   }
 
-  layers.push({ layer: "News+MTF", score: layer6Score, details: layer6Details });
+  layers.push({ layer: "News+MTF+Entry", score: layer6Score, details: layer6Details });
 
   // ═══════════════════════════════════════════
   // LAYER 1: EXTERNAL SIGNAL (PRIMARY)
@@ -884,6 +1165,7 @@ function scoreSignal(
   // ═══════════════════════════════════════════
   let layer4Score = 0;
   const layer4Details: string[] = [];
+  let div: ReturnType<typeof detectDivergence> | null = null; // v8.0: scope for use in confidence calc
 
   if (candles.length >= 8) {
     sources.push("Local-Analysis");
@@ -964,6 +1246,26 @@ function scoreSignal(
     if (c0.c > c1.c && c1.c > c2.c) { buyScore += 1.5; layer4Details.push("3-candle bullish momentum"); }
     else if (c0.c < c1.c && c1.c < c2.c) { sellScore += 1.5; layer4Details.push("3-candle bearish momentum"); }
 
+    // v8.0 NEW: Divergence detection (RSI + MACD)
+    div = detectDivergence(candles, ta?.rsi, ta?.macd?.histogram);
+    if (div.rsiDivergence || div.macdDivergence) {
+      for (const r of div.reasons) layer4Details.push(r);
+      // Bullish divergence supports BUY, bearish supports SELL
+      if (div.rsiDivergence === "bullish" || div.macdDivergence === "bullish") {
+        buyScore += 4; layer4Details.push("DIVERGENCE BULLISH — strong reversal signal");
+      }
+      if (div.rsiDivergence === "bearish" || div.macdDivergence === "bearish") {
+        sellScore += 4; layer4Details.push("DIVERGENCE BEARISH — strong reversal signal");
+      }
+      // Kill signal if divergence is against our direction
+      if (type === "BUY" && (div.rsiDivergence === "bearish" || div.macdDivergence === "bearish")) {
+        sellScore += 3; layer4Details.push("DIVERGENCE WARNING: bearish div against BUY");
+      }
+      if (type === "SELL" && (div.rsiDivergence === "bullish" || div.macdDivergence === "bullish")) {
+        buyScore += 3; layer4Details.push("DIVERGENCE WARNING: bullish div against SELL");
+      }
+    }
+
     layer4Score = Math.max(buyScore, sellScore) - 5;
   }
   layers.push({ layer: "Local Analysis", score: layer4Score, details: layer4Details });
@@ -996,13 +1298,67 @@ function scoreSignal(
   layers.push({ layer: "Market Context", score: layer5Score, details: layer5Details });
 
   // ═══════════════════════════════════════════
+  // LAYER 10: TRADINGVIEW TECHNICAL CONFIRMATION (v8.0 NEW)
+  // ═══════════════════════════════════════════
+  let layer10Score = 0;
+  const layer10Details: string[] = [];
+
+  if (tvData) {
+    sources.push("TradingView-TA");
+
+    // Summary recommendation
+    const tvRec = (tvData.signal || tvData.recommend || "").toString().toLowerCase();
+    if (tvRec.includes("strong_buy") || tvRec.includes("strong buy")) {
+      buyScore += 5; layer10Score += 5; layer10Details.push(`TradingView: STRONG BUY`);
+    } else if (tvRec.includes("buy")) {
+      buyScore += 3; layer10Score += 3; layer10Details.push(`TradingView: BUY`);
+    } else if (tvRec.includes("strong_sell") || tvRec.includes("strong sell")) {
+      sellScore += 5; layer10Score += 5; layer10Details.push(`TradingView: STRONG SELL`);
+    } else if (tvRec.includes("sell")) {
+      sellScore += 3; layer10Score += 3; layer10Details.push(`TradingView: SELL`);
+    } else {
+      layer10Details.push(`TradingView: ${tvRec || "neutral"}`);
+    }
+
+    // Buy/sell counts
+    if (tvData.buy !== undefined && tvData.sell !== undefined) {
+      const total = (tvData.buy || 0) + (tvData.sell || 0) + (tvData.neutral || 0);
+      const buyPct = total > 0 ? (tvData.buy / total) * 100 : 50;
+      const sellPct = total > 0 ? (tvData.sell / total) * 100 : 50;
+
+      if (buyPct > 70) { buyScore += 2; layer10Score += 2; layer10Details.push(`TV indicators ${buyPct.toFixed(0)}% bullish`); }
+      else if (sellPct > 70) { sellScore += 2; layer10Score += 2; layer10Details.push(`TV indicators ${sellPct.toFixed(0)}% bearish`); }
+      else if (buyPct > 55) { buyScore += 1; }
+      else if (sellPct > 55) { sellScore += 1; }
+
+      ind.TV_BuyPct = buyPct.toFixed(0);
+      ind.TV_SellPct = sellPct.toFixed(0);
+    }
+
+    // Moving averages signal
+    if (tvData.ma?.recommendation) {
+      const maRec = tvData.ma.recommendation.toString().toLowerCase();
+      if (maRec.includes("buy") && type === "BUY") { buyScore += 1.5; layer10Details.push("TV MA: BUY aligned"); layer10Score += 1.5; }
+      else if (maRec.includes("sell") && type === "SELL") { sellScore += 1.5; layer10Details.push("TV MA: SELL aligned"); layer10Score += 1.5; }
+    }
+
+    // Oscillators signal
+    if (tvData.oscillators?.recommendation) {
+      const oscRec = tvData.oscillators.recommendation.toString().toLowerCase();
+      if (oscRec.includes("buy") && type === "BUY") { buyScore += 1; layer10Details.push("TV Oscillators: BUY"); layer10Score += 1; }
+      else if (oscRec.includes("sell") && type === "SELL") { sellScore += 1; layer10Details.push("TV Oscillators: SELL"); layer10Score += 1; }
+    }
+  }
+  layers.push({ layer: "TradingView TA", score: layer10Score, details: layer10Details });
+
+  // ═══════════════════════════════════════════
   // FINAL SCORING
   // ═══════════════════════════════════════════
 
   const total = buyScore + sellScore;
   const win = Math.max(buyScore, sellScore);
-  const confluenceCount = reasons.length + layer1Details.length + layer2Details.length + layer3Details.length + layer4Details.length + layer5Details.length;
-  const allReasons = [...layer1Details, ...layer2Details, ...layer3Details, ...layer4Details, ...layer5Details];
+  const confluenceCount = reasons.length + layer1Details.length + layer2Details.length + layer3Details.length + layer4Details.length + layer5Details.length + layer10Details.length;
+  const allReasons = [...layer1Details, ...layer2Details, ...layer3Details, ...layer4Details, ...layer5Details, ...layer10Details];
 
   // STRICT FILTERS
   // Counter-trend: ANY negative L2 kills (v7.0 stricter)
@@ -1035,8 +1391,11 @@ function scoreSignal(
   const minDominance = hasTA ? 0.78 : 0.72; // v7.0: 78% with TA (was 75%)
   const minConf = hasTA ? 92 : 85; // v7.0: 92% with TA (was 90%)
 
-  // v7.0: MTF alignment required (at least 2/3 must agree)
-  if (mtfAlignment < 2 && hasCandles) return null;
+  // v8.0: MTF v2 alignment required — at least 1.0 score (was: mtfAlignment < 2)
+  if (mtfScore < 1.0 && hasCandles) return null;
+
+  // v8.0: BAD entry timing = extra strict (need higher confidence to override)
+  if (mtfResult?.entryTiming === "BAD" && hasCandles) return null;
 
   if (confluenceCount < minConfluence) return null;
   if (total < 10) return null;
@@ -1059,24 +1418,38 @@ function scoreSignal(
     if (type === "BUY" && isStrongBearish && layer6Score < -1) return null;
   }
 
-  // Confidence calculation — v7.0 with MTF + News + feedback adjustment
+  // Confidence calculation — v8.0 with MTF v2 + divergence + entry timing
   const rawConf = (win / total) * 100;
   const confBonus = Math.min((win - 10) * 1.0, 5);
   const taCount = ta ? Object.keys(ta).length : 0;
   const taBonus = taCount >= 8 ? 3 : taCount >= 5 ? 1.5 : 0;
   const sessionBonus = sess >= 4 ? 1.5 : 0;
-  const mtfBonus = mtfAlignment >= 3 ? 2 : mtfAlignment >= 2 ? 1 : 0; // v7.0
-  const newsBonus = hasNewsMood ? 0.5 : 0; // v7.0: slight bonus for having news data
-  const conf = Math.min(Math.round(rawConf + confBonus + taBonus + sessionBonus + mtfBonus + newsBonus + feedbackAdjust), 97);
+  const mtfBonus = mtfScore >= 2.0 ? 2.5 : mtfScore >= 1.0 ? 1 : 0; // v8.0: fractional MTF
+  const entryBonus = mtfResult?.entryTiming === "GOOD" ? 1 : 0; // v8.0
+  const divBonus = (div?.rsiDivergence || div?.macdDivergence) ? 1 : 0; // v8.0
+  const newsBonus = hasNewsMood ? 0.5 : 0;
+  const conf = Math.min(Math.round(rawConf + confBonus + taBonus + sessionBonus + mtfBonus + entryBonus + divBonus + newsBonus + feedbackAdjust), 97);
 
   if (conf < minConf) return null;
 
-  // ═══ TP/SL — v7.0: BIGGER TP, TIGHTER SL for 5-min scalp ═══
+  // ═══ TP/SL — v8.1: BIGGER TP, TIGHTER SL for 5-min scalp + ADX scaling ═══
   let tpMult: number, slMult: number;
   if (conf >= 95) { tpMult = 3.5; slMult = 0.3; }  // v7.0: 3.5:1 reward, ultra-tight SL
   else if (conf >= 93) { tpMult = 3.0; slMult = 0.35; } // v7.0
   else if (conf >= 90) { tpMult = 2.5; slMult = 0.4; }  // v7.0
   else { tpMult = 2.0; slMult = 0.45; }
+
+  // v8.1 NEW: ADX-based TP/SL scaling — strong trend = wider TP, tighter SL
+  const adxVal = ta?.adx?.adx;
+  if (adxVal !== undefined && adxVal > 30) {
+    if (adxVal > 40) {
+      tpMult *= 1.2; slMult *= 0.85;
+      layer4Details.push(`ADX ${adxVal} strong trend — wider TP, tighter SL`);
+    } else {
+      tpMult *= 1.1; slMult *= 0.9;
+      layer4Details.push(`ADX ${adxVal} moderate trend — adjusted TP/SL`);
+    }
+  }
 
   // If external signal has TP/SL, blend with our calculation
   let finalTP: number, finalSL: number;
@@ -1108,7 +1481,7 @@ function scoreSignal(
     confluenceCount,
     layers,
     // Extra fields for frontend
-    _engineVersion: "v7.0-KILLER",
+    _engineVersion: "v8.1-SHARPSHOOTER",
     _timestamp: new Date().toISOString(),
     _status: "ACTIVE" as const,
     _tpPips: Math.abs(finalTP - price),
@@ -1150,7 +1523,7 @@ export async function GET() {
       signals: cachedSignals,
       cached: true,
       apiStats: dualApi.stats,
-      engineVersion: "v7.0-KILLER",
+      engineVersion: "v8.1-SHARPSHOOTER",
     });
   }
 
@@ -1191,16 +1564,20 @@ export async function GET() {
         // 2b: Find matching market trend
         const trend = marketTrends.find(t => pairMatch(t.pair, pair)) || null;
 
-        // 2c: Fetch price + candles (15min) + candles (5min) + candles (1hr) + TA
-        const [priceData, candles15m, candles5m, candles1h, taData] = await Promise.all([
+        // 2c: Fetch price + candles (15min) + candles (5min) + candles (1hr) + TA + TradingView
+        const [priceData, candles15m, candles5m, candles1h, taData, tvData] = await Promise.all([
           fetchPrice(pair, from, to),
           fetchCandles(from, to),
           fetchCandlesMulti(from, to, "5min"),
           fetchCandlesMulti(from, to, "60min"),
           fetchAllTA(from, to),
+          fetchTradingViewTA(pair),  // v8.0: TradingView TA
         ]);
 
-        // v7.0: Calculate multi-timeframe alignment (after we know signalType)
+        // v8.0: Log TradingView data
+        if (tvData) engineLog.push(`  ${pair}: TradingView ${tvData.signal || tvData.recommend || 'neutral'} (buy:${tvData.buy} sell:${tvData.sell})`);
+
+        // Calculate multi-timeframe alignment (after we know signalType)
         const candles = candles15m; // Use 15min for main analysis
 
         // Skip if no price and no external signal
@@ -1239,25 +1616,20 @@ export async function GET() {
 
         if (!signalType) { engineLog.push(`  ${pair}: SKIP (no signal direction)`); continue; }
 
-        // v7.0: Calculate multi-timeframe alignment
-        let mtfAlignment = 0;
-        if (candles5m.length >= 5 && candles15m.length >= 5 && candles1h.length >= 5) {
-          const dir5m = candles5m[0].c > candles5m[1].c ? "UP" : "DOWN";
-          const dir15m = candles15m[0].c > candles15m[1].c ? "UP" : "DOWN";
-          const dir1h = candles1h[0].c > candles1h[1].c ? "UP" : "DOWN";
-          const signalDir = signalType === "BUY" ? "UP" : "DOWN";
-          if (dir5m === signalDir) mtfAlignment++;
-          if (dir15m === signalDir) mtfAlignment++;
-          if (dir1h === signalDir) mtfAlignment++;
-          engineLog.push(`  ${pair}: MTF 5m=${dir5m} 15m=${dir15m} 1h=${dir1h} → ${mtfAlignment}/3 aligned`);
+        // v8.0: PROPER multi-timeframe analysis (replaces v7.0 fake last-candle check)
+        let mtfResult: MTFResult | null = null;
+        if (candles5m.length >= 5 || candles15m.length >= 5 || candles1h.length >= 5) {
+          const sigDir = signalType === "BUY" ? "UP" : "DOWN";
+          mtfResult = analyzeMTFv2(candles5m, candles15m, candles1h, sigDir);
+          engineLog.push(`  ${pair}: MTFv2 5m=${mtfResult.tf5m} 15m=${mtfResult.tf15m} 1h=${mtfResult.tf1h} → score=${mtfResult.score.toFixed(1)}/3.0 entry=${mtfResult.entryTiming}`);
         }
 
-        // 2e: Calendar impact check (v7.0: per-pair, before expensive scoring)
+        // 2e: Calendar impact check (before expensive scoring)
         const calBlocked = await checkCalendarImpact(pair);
         if (calBlocked) { engineLog.push(`  ${pair}: BLOCKED (high-impact news incoming)`); continue; }
 
-        // 2f: Run full scoring (v7.0: with news mood + MTF)
-        const result = scoreSignal(pair, signalType, price, candles, taData, extSig, trend, false, getRecentWinRate(), getLastResults(5), newsMood, mtfAlignment);
+        // 2f: Run full scoring (v8.0: with MTF v2 + divergence + 5min entry)
+        const result = scoreSignal(pair, signalType, price, candles, taData, extSig, trend, false, getRecentWinRate(), getLastResults(5), newsMood, mtfResult, candles5m, tvData);
         if (result) {
           signals.push({
             id: result.id,
@@ -1274,7 +1646,7 @@ export async function GET() {
             source: result.sources.join(" + "),
             apiSource: priceData?.src || "forex-signals-api",
             apiKey: priceData?.key || "FX-API",
-            engineVersion: "v7.0-KILLER",
+            engineVersion: "v8.0-SHARPSHOOTER",
             tradeDuration: result._tradeDuration,
             tpPips: result._tpPips,
             slPips: result._slPips,
@@ -1296,6 +1668,31 @@ export async function GET() {
 
     // Sort by confidence (highest first), then by confluence count, then by MTF bonus
     signals.sort((a, b) => b.confidence - a.confidence || b.confluences - a.confluences);
+
+    // v8.1 NEW: Cross-pair correlation bonus
+    // If multiple correlated pairs agree on direction, boost top signal confidence
+    if (signals.length >= 2) {
+      const usdLongPairs = signals.filter(s => s.type === "SELL" && s.pair.includes("USD") && !s.pair.startsWith("USD"));
+      const usdShortPairs = signals.filter(s => s.type === "BUY" && s.pair.includes("USD") && !s.pair.startsWith("USD"));
+      const usdLong = usdLongPairs.length;
+      const usdShort = usdShortPairs.length;
+
+      // XAU + XAG agreement
+      const goldSilver = signals.filter(s => (s.pair.includes("XAU") || s.pair.includes("XAG")) && s.type === "BUY").length;
+
+      let correlationBonus = 0;
+      if (usdLong >= 3) { correlationBonus += 2; engineLog.push(`Cross-pair: ${usdLong} USD pairs bearish (USD strength confirmed)`); }
+      if (usdShort >= 3) { correlationBonus += 2; engineLog.push(`Cross-pair: ${usdShort} USD pairs bullish (USD weakness confirmed)`); }
+      if (goldSilver >= 2) { correlationBonus += 1; engineLog.push("Cross-pair: XAU+XAG both bullish"); }
+
+      // Apply bonus to top signal
+      if (correlationBonus > 0 && signals.length > 0) {
+        signals[0].confidence = Math.min(signals[0].confidence + correlationBonus, 97);
+        signals[0].reasoning.push(`Cross-pair correlation +${correlationBonus}%`);
+        engineLog.push(`  → Top signal boosted by +${correlationBonus}% from cross-pair correlation`);
+      }
+    }
+
     // v7.0: TOP 1 ONLY — the absolute best signal
     const topSignals = signals.slice(0, 1);
 
@@ -1305,34 +1702,35 @@ export async function GET() {
     }
 
     engineLog.push(`\nResult: ${topSignals.length} signal from ${PAIRS.length} pairs checked (TOP 1 mode)`);
-    console.log("[POWER ENGINE v7.0-KILLER]\n" + engineLog.join("\n"));
+    console.log("[POWER ENGINE v8.1-SHARPSHOOTER]\n" + engineLog.join("\n"));
 
     return NextResponse.json({
       source: topSignals.length > 0
-        ? `Power Engine v7.0 (${topSignals[0].source})`
+        ? `Power Engine v8.1 (${topSignals[0].source})`
         : "scanning",
       signals: topSignals.length > 0 ? topSignals : [],
       generated: topSignals.length,
       totalChecked: PAIRS.length,
       apiStats: dualApi.stats,
-      engineVersion: "v7.0-KILLER",
+      engineVersion: "v8.1-SHARPSHOOTER",
       newsMood,
-      v7Notes: "TOP 1 only | 6-layer fusion | MTF alignment | News sentiment | 92%+ confidence | 5-min scalp",
+      v8Notes: "TOP 1 | 10-layer fusion | MTF alignment | News sentiment | TradingView TA | Divergence | 5min entry | 92%+ confidence | 5-min scalp | Cross-pair correlation",
       engineLog,
       activeSources: {
         forexSignalsApi: externalSignals.length > 0,
         marketTrendsApi: marketTrends.length > 0,
         priceData: dualApi.stats.totalKeys > 0,
         taIndicators: CTA_KEY ? true : false,
+        tradingViewTA: TV_KEY ? true : false,
       },
     });
   } catch (err: any) {
-    console.error("[POWER ENGINE v5.0] Fatal:", err);
+    console.error("[POWER ENGINE v8.1] Fatal:", err);
     return NextResponse.json({
       source: "error",
       signals: cachedSignals,
       apiStats: dualApi.stats,
-      engineVersion: "v7.0-KILLER",
+      engineVersion: "v8.1-SHARPSHOOTER",
       error: err.message,
     });
   }

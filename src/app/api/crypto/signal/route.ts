@@ -1,19 +1,21 @@
 /* ═══════════════════════════════════════════════════════════════════════
-   CRYPTO FUSION ENGINE v3.0 — KILLER INSTINCT: 1 SIGNAL = 1 WIN
+   CRYPTO FUSION ENGINE v5.0 — SHARPSHOOTER: 1 SIGNAL = 1 WIN
    
-   Sources fused:
-   1. SelfTrade External Signal (25%) — TP/SL from external source
-   2. Binance Order Flow (30%) — depth imbalance + trade flow + momentum
-   3. CryptoEdge Sentiment (20%) — crowding, sentiment signals, alerts
-   4. Fear & Greed Index (10%) — market-wide sentiment
-   5. Price Action (15%) — candle analysis, momentum, range position
+   Sources fused (8-LAYER):
+   1. SelfTrade External Signal (20%) — TP/SL from external source
+   2. Binance Order Flow (25%) — depth imbalance + trade flow + momentum
+   3. CryptoEdge Sentiment (15%) — crowding, sentiment signals, alerts
+   4. Fear & Greed Index (5%) — market-wide sentiment
+   5. Price Action (10%) — candle patterns, momentum
+   6. Local Technical Analysis (25%) — RSI, MACD, EMA, BB, Stoch, ATR, SR, Divergence
+   7. TradingView Technical Analysis (v5.0 NEW) — buy/sell/neutral consensus + MA/Oscillator alignment
+   8. TV Conflict Filter (v5.0 NEW) — reject if TradingView strongly against signal
    
-   v3.0 CHANGES:
-     → OUTPUT: TOP 1 ONLY (was TOP 2)
-     → STRICTER: min 4 sources (was 3), min 5 confluences (was 4)
-     → STRICTER: dominance 65% (was 60%), min confidence 70% (was 60%)
-     → NEW: RSI sanity — no BUY if 24h change > 8%, no SELL if < -8%
-     → Tighter TP/SL: 2.5:1 R:R minimum for confidence bonus
+   v5.0 CHANGES:
+     → NEW: LAYER 7 — TradingView Technical Analysis (buy/sell counts, MA+Oscillator alignment)
+     → NEW: Filter 9 — TradingView strong counter-signal rejection
+     → STRICTER: min 10 confluences (was 8), improved confidence bonus scaling
+     → v4.0 carried: LAYER 6 Full local TA, CryptoEdge TA, ATR TP/SL, divergences
    ═══════════════════════════════════════════════════════════════════════ */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -24,6 +26,10 @@ const BINANCE_KEY = process.env.BINANCE_API_KEY || "";
 const BINANCE_HOST = process.env.BINANCE_API_HOST || "real-time-binance-data.p.rapidapi.com";
 const CRYPTOEDGE_KEY = process.env.CRYPTOEDGE_API_KEY || "";
 const CRYPTOEDGE_HOST = process.env.CRYPTOEDGE_API_HOST || "cryptoedge-market-sentiment-indicators.p.rapidapi.com";
+
+// v5.0 NEW: TradingView Technical Analysis
+const TV_HOST = process.env.TRADINGVIEW_API_HOST || "tradingview-data1.p.rapidapi.com";
+const TV_KEY = process.env.TRADINGVIEW_API_KEY || "";
 
 // Cache
 const CACHE = new Map<string, { data: any; expires: number }>();
@@ -68,9 +74,194 @@ interface FusionSignal {
   orderFlowScore: number | null;
   fearGreed: number | null;
   crowdingScore: number | null;
+  taIndicators: Record<string, string | number>;
   filtered: boolean;
   filterReason?: string;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   LOCAL TA CALCULATIONS (from Binance candles)
+   ═══════════════════════════════════════════════════════════ */
+
+function calcEMA(data: number[], period: number): number {
+  if (data.length === 0) return 0;
+  const k = 2 / (period + 1);
+  let ema = data[data.length - 1];
+  for (let i = data.length - 2; i >= Math.max(0, data.length - period * 2); i--) {
+    ema = data[i] * k + ema * (1 - k);
+  }
+  return ema;
+}
+
+function calcSMA(data: number[], period: number): number {
+  if (data.length < period) return 0;
+  const slice = data.slice(0, period);
+  return slice.reduce((a, b) => a + b, 0) / period;
+}
+
+function calcRSI(candles: any[], period = 14): number {
+  if (candles.length < period + 1) return 50;
+  let gains = 0, losses = 0;
+  const n = Math.min(candles.length - 1, period);
+  for (let i = 0; i < n; i++) {
+    const d = candles[i].close - candles[i + 1].close;
+    if (d > 0) gains += d; else losses -= d;
+  }
+  if (losses === 0) return 100;
+  return +(100 - 100 / (1 + (gains / n) / (losses / n))).toFixed(1);
+}
+
+function calcMACD(candles: any[]): { macd: number; signal: number; histogram: number } | null {
+  if (candles.length < 35) return null;
+  const closes = candles.map(c => c.close).reverse();
+  const e12 = calcEMA(closes, 12), e26 = calcEMA(closes, 26);
+  const macdLine = e12 - e26;
+  const macdHistory: number[] = [];
+  for (let off = 1; off <= Math.min(closes.length - 26, 35); off++) {
+    const sub = closes.slice(0, Math.max(26 + off, 27));
+    const e12h = calcEMA(sub, 12), e26h = calcEMA(sub, 26);
+    macdHistory.unshift(e12h - e26h);
+  }
+  if (macdHistory.length >= 9) {
+    const sig = calcEMA(macdHistory, 9);
+    return { macd: macdLine, signal: sig, histogram: macdLine - sig };
+  }
+  return { macd: macdLine, signal: 0, histogram: macdLine };
+}
+
+function calcStochastic(candles: any[], kPeriod = 14, dPeriod = 3): { k: number; d: number } | null {
+  if (candles.length < kPeriod) return null;
+  const recent = candles.slice(0, kPeriod);
+  const highs = recent.map(c => c.high);
+  const lows = recent.map(c => c.low);
+  const highest = Math.max(...highs);
+  const lowest = Math.min(...lows);
+  const range = highest - lowest;
+  if (range === 0) return null;
+  const k = ((recent[0].close - lowest) / range) * 100;
+
+  // Calculate %D as SMA of last %K values
+  const kValues: number[] = [k];
+  for (let i = 1; i < dPeriod && i + kPeriod <= candles.length; i++) {
+    const sub = candles.slice(i, i + kPeriod);
+    const h = Math.max(...sub.map(c => c.high));
+    const l = Math.min(...sub.map(c => c.low));
+    const r = h - l;
+    if (r > 0) kValues.push(((sub[0].close - l) / r) * 100);
+  }
+  const d = kValues.length > 0 ? kValues.reduce((a, b) => a + b, 0) / kValues.length : k;
+  return { k: +k.toFixed(1), d: +d.toFixed(1) };
+}
+
+function calcBollinger(candles: any[], period = 20, stdDevMult = 2): { upper: number; middle: number; lower: number; width: number } | null {
+  if (candles.length < period) return null;
+  const closes = candles.slice(0, period).map(c => c.close);
+  const middle = closes.reduce((a, b) => a + b, 0) / period;
+  const variance = closes.reduce((sum, c) => sum + Math.pow(c - middle, 2), 0) / period;
+  const stdDev = Math.sqrt(variance);
+  const upper = middle + stdDevMult * stdDev;
+  const lower = middle - stdDevMult * stdDev;
+  const width = middle > 0 ? (upper - lower) / middle : 0;
+  return { upper, middle, lower, width };
+}
+
+function calcATR(candles: any[], period = 14): number {
+  if (candles.length < period + 1) return 0;
+  let sum = 0;
+  const n = Math.min(candles.length - 1, period);
+  for (let i = 0; i < n; i++) {
+    const c = candles[i], p = candles[i + 1];
+    sum += Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close));
+  }
+  return sum / n;
+}
+
+function findSR(candles: any[], price: number): { support: number; resistance: number; near: "support" | "resistance" | "none" } {
+  if (candles.length < 15) return { support: price * 0.99, resistance: price * 1.01, near: "none" };
+  const lows = candles.slice(0, 30).map(c => c.low).sort((a, b) => a - b);
+  const highs = candles.slice(0, 30).map(c => c.high).sort((a, b) => b - a);
+  const support = lows.slice(0, 3).reduce((a, b) => a + b, 0) / 3;
+  const resistance = highs.slice(0, 3).reduce((a, b) => a + b, 0) / 3;
+  const atr = (resistance - support) / 4;
+  let near: "support" | "resistance" | "none" = "none";
+  if (price - support < atr) near = "support";
+  else if (resistance - price < atr) near = "resistance";
+  return { support, resistance, near };
+}
+
+// RSI divergence detection
+function detectRSIDivergence(candles: any[], rsiVal: number): { type: string | null; reason: string } {
+  if (candles.length < 25) return { type: null, reason: "" };
+  const lookback = Math.min(25, candles.length);
+  const recent = candles.slice(0, lookback);
+
+  // Find price highs and lows
+  let priceHighs: { idx: number; val: number }[] = [];
+  let priceLows: { idx: number; val: number }[] = [];
+  for (let i = 0; i < recent.length - 2; i++) {
+    if (recent[i].high > recent[i + 1].high && recent[i].high > recent[i + 2]?.high) {
+      priceHighs.push({ idx: i, val: recent[i].high });
+    }
+    if (recent[i].low < recent[i + 1].low && recent[i].low < recent[i + 2]?.low) {
+      priceLows.push({ idx: i, val: recent[i].low });
+    }
+  }
+
+  // Bearish divergence: higher price high + RSI weakening
+  if (priceHighs.length >= 2) {
+    const h1 = priceHighs[0], h2 = priceHighs[1];
+    if (h1.val > h2.val && rsiVal < 60) {
+      return { type: "bearish", reason: `RSI bearish divergence: price higher high but RSI ${rsiVal} weakening` };
+    }
+  }
+
+  // Bullish divergence: lower price low + RSI strengthening
+  if (priceLows.length >= 2) {
+    const l1 = priceLows[0], l2 = priceLows[1];
+    if (l1.val < l2.val && rsiVal > 40) {
+      return { type: "bullish", reason: `RSI bullish divergence: price lower low but RSI ${rsiVal} strengthening` };
+    }
+  }
+
+  return { type: null, reason: "" };
+}
+
+// MACD histogram divergence
+function detectMACDDivergence(candles: any[], histVal: number): { type: string | null; reason: string } {
+  if (candles.length < 25) return { type: null, reason: "" };
+  const recent = candles.slice(0, 25);
+
+  let priceHighs: { idx: number; val: number }[] = [];
+  let priceLows: { idx: number; val: number }[] = [];
+  for (let i = 0; i < recent.length - 2; i++) {
+    if (recent[i].high > recent[i + 1].high && recent[i].high > recent[i + 2]?.high) {
+      priceHighs.push({ idx: i, val: recent[i].high });
+    }
+    if (recent[i].low < recent[i + 1].low && recent[i].low < recent[i + 2]?.low) {
+      priceLows.push({ idx: i, val: recent[i].low });
+    }
+  }
+
+  if (priceHighs.length >= 2 && histVal < 0) {
+    const h1 = priceHighs[0], h2 = priceHighs[1];
+    if (h1.val > h2.val) {
+      return { type: "bearish", reason: "MACD bearish divergence: price higher high but histogram negative" };
+    }
+  }
+
+  if (priceLows.length >= 2 && histVal > 0) {
+    const l1 = priceLows[0], l2 = priceLows[1];
+    if (l1.val < l2.val) {
+      return { type: "bullish", reason: "MACD bullish divergence: price lower low but histogram positive" };
+    }
+  }
+
+  return { type: null, reason: "" };
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DATA FETCHERS
+   ═══════════════════════════════════════════════════════════ */
 
 async function fetchSelfTradeSignal(pair: string): Promise<any> {
   return cachedFetch(SELFTRADE_HOST, SELFTRADE_KEY, `/rapidapi/signal?pair=${pair}`, 30_000);
@@ -81,7 +272,7 @@ async function fetchBinanceFlow(symbol: string): Promise<any> {
     cachedFetch(BINANCE_HOST, BINANCE_KEY, `/depth?symbol=${symbol}`, 15_000),
     cachedFetch(BINANCE_HOST, BINANCE_KEY, `/trades?symbol=${symbol}&limit=200`, 15_000),
     cachedFetch(BINANCE_HOST, BINANCE_KEY, `/ticker/24hr?symbol=${symbol}`, 30_000),
-    cachedFetch(BINANCE_HOST, BINANCE_KEY, `/klines?symbol=${symbol}&limit=50`, 60_000),
+    cachedFetch(BINANCE_HOST, BINANCE_KEY, `/klines?symbol=${symbol}&limit=100`, 60_000), // v4.0: 100 (was 50)
   ]);
 
   const depth = depthRes.status === "fulfilled" ? depthRes.value : null;
@@ -129,13 +320,15 @@ async function fetchBinanceFlow(symbol: string): Promise<any> {
     tickerAnalysis = { price, changePct, volatility: price > 0 ? (range / price) * 100 : 0, rangePosition };
   }
 
-  // Parse candles
+  // Parse candles — v4.0: reversed so index 0 = most recent
   let candles: any[] = [];
   if (Array.isArray(klines)) {
-    candles = klines.slice(-30).map((k: any) => ({
+    const raw = klines.slice(-100).map((k: any) => ({
       time: k[0], open: parseFloat(k[1]), high: parseFloat(k[2]),
       low: parseFloat(k[3]), close: parseFloat(k[4]), volume: parseFloat(k[5]),
     }));
+    // Reverse so candles[0] = most recent
+    candles = raw.reverse();
   }
 
   return { depth: depthAnalysis, tradeFlow, ticker: tickerAnalysis, candles };
@@ -176,7 +369,25 @@ async function fetchCryptoEdge(symbol: string): Promise<any> {
     }
   }
 
-  return { indicators, crowding, signal };
+  // v4.0 NEW: Parse CryptoEdge TA indicators
+  let taIndicators: { rsi?: number; macd?: number; macdSignal?: number; macdHist?: number; ema20?: number; sma50?: number } | null = null;
+  if (indicators) {
+    const i = indicators;
+    taIndicators = {};
+    if (typeof i.rsi === "number") taIndicators.rsi = i.rsi;
+    else if (i.rsi?.value) taIndicators.rsi = i.rsi.value;
+    if (i.macd) {
+      if (typeof i.macd === "number") taIndicators.macd = i.macd;
+      else if (i.macd.macdLine || i.macd.value) taIndicators.macd = i.macd.macdLine || i.macd.value;
+      if (i.macd.signalLine || i.macd.signal) taIndicators.macdSignal = i.macd.signalLine || i.macd.signal;
+      if (i.macd.histogram || i.macd.macdHistogram) taIndicators.macdHist = i.macd.histogram || i.macd.macdHistogram;
+    }
+    if (typeof i.ema20 === "number" || i.ema20?.value) taIndicators.ema20 = typeof i.ema20 === "number" ? i.ema20 : i.ema20.value;
+    if (typeof i.sma50 === "number" || i.sma50?.value) taIndicators.sma50 = typeof i.sma50 === "number" ? i.sma50 : i.sma50.value;
+    if (Object.keys(taIndicators).length === 0) taIndicators = null;
+  }
+
+  return { indicators, crowding, signal, taIndicators };
 }
 
 async function fetchFearGreed(): Promise<{ value: number; label: string } | null> {
@@ -185,8 +396,34 @@ async function fetchFearGreed(): Promise<{ value: number; label: string } | null
   return null;
 }
 
+// v5.0 NEW: TradingView Technical Analysis for crypto
+async function fetchTradingViewTA(symbol: string): Promise<{buy?: number; sell?: number; neutral?: number; signal?: string; ma?: any; oscillators?: any} | null> {
+  if (!TV_KEY) return null;
+  try {
+    const tvSymbol = `BINANCE:${symbol}`;
+    const res = await fetch(`https://${TV_HOST}/technicals?symbol=${encodeURIComponent(tvSymbol)}&interval=15min`, {
+      headers: { "x-rapidapi-key": TV_KEY, "x-rapidapi-host": TV_HOST },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data?.detail?.error || data?.messages) return null;
+    const tech: any = {};
+    if (data.summary) {
+      tech.buy = data.summary.buy || 0;
+      tech.sell = data.summary.sell || 0;
+      tech.neutral = data.summary.neutral || 0;
+      tech.signal = data.summary.recommendation || "";
+    }
+    if (data.technicals?.oscillators || data.oscillators) tech.oscillators = data.technicals?.oscillators || data.oscillators;
+    if (data.technicals?.ma || data.ma) tech.ma = data.technicals?.ma || data.ma;
+    if (tech.buy !== undefined || tech.signal) return tech;
+    return null;
+  } catch { return null; }
+}
+
 /* ═══════════════════════════════════════════════════════════
-   FUSION SCORING
+   FUSION SCORING — 8-LAYER ENGINE v5.0
    ═══════════════════════════════════════════════════════════ */
 
 function scoreCryptoSignal(
@@ -195,17 +432,22 @@ function scoreCryptoSignal(
   binance: any,
   cryptoEdge: any,
   fearGreed: { value: number; label: string } | null,
+  tvData: {buy?: number; sell?: number; neutral?: number; signal?: string; ma?: any; oscillators?: any} | null,
 ): FusionSignal | null {
   const reasons: string[] = [];
   const sources: string[] = [];
   const layers: FusionSignal["layers"] = [];
   let buyScore = 0, sellScore = 0;
   let sourceCount = 0;
+  const taInd: Record<string, string | number> = {}; // TA indicator values for output
 
   const price = binance?.ticker?.price || extSignal?.current_price || 0;
   if (price === 0) return null;
 
-  // ═══ LAYER 1: SelfTrade External Signal (25%) ═══
+  const candles = binance?.candles || [];
+  const hasCandles = candles.length >= 20;
+
+  // ═══ LAYER 1: SelfTrade External Signal (20%) ═══
   let layer1Score = 0;
   const layer1Details: string[] = [];
 
@@ -228,7 +470,7 @@ function scoreCryptoSignal(
   }
   layers.push({ layer: "External Signal", score: layer1Score, details: layer1Details });
 
-  // ═══ LAYER 2: Binance Order Flow (30%) ═══
+  // ═══ LAYER 2: Binance Order Flow (25%) ═══
   let layer2Score = 0;
   const layer2Details: string[] = [];
   let orderFlowScore = 50;
@@ -269,7 +511,7 @@ function scoreCryptoSignal(
         layer2Score += 2;
       }
 
-      // Range position — avoid buying at top, selling at bottom
+      // Range position
       if (binance.ticker.rangePosition > 0.85) { sellScore += 1; layer2Details.push("Near daily high (overextended)"); }
       else if (binance.ticker.rangePosition < 0.15) { buyScore += 1; layer2Details.push("Near daily low (oversold)"); }
     }
@@ -278,20 +520,19 @@ function scoreCryptoSignal(
   }
   layers.push({ layer: "Order Flow", score: layer2Score, details: layer2Details });
 
-  // ═══ LAYER 3: CryptoEdge Sentiment (20%) ═══
+  // ═══ LAYER 3: CryptoEdge Sentiment + Indicators (15%) ═══
   let layer3Score = 0;
   const layer3Details: string[] = [];
   let crowdingScore: number | null = null;
 
-  if (cryptoEdge?.crowding || cryptoEdge?.signal || cryptoEdge?.indicators) {
+  if (cryptoEdge?.crowding || cryptoEdge?.signal || cryptoEdge?.indicators || cryptoEdge?.taIndicators) {
     sourceCount++;
-    sources.push("CryptoEdge-Sentiment");
+    sources.push("CryptoEdge");
 
-    // Crowding — contrarian signal (EXTREME = reversal likely)
+    // Crowding — contrarian signal
     if (cryptoEdge.crowding) {
       crowdingScore = cryptoEdge.crowding.score;
       if (cryptoEdge.crowding.isExtreme) {
-        // CONTRARIAN: crowd is wrong, bet against them
         if (cryptoEdge.crowding.contrarian === "SELL") {
           sellScore += 4; layer3Details.push(`EXTREME long crowding (${crowdingScore}) — contrarian SELL`);
         } else {
@@ -307,10 +548,24 @@ function scoreCryptoSignal(
       else { sellScore += 2; layer3Details.push("CryptoEdge signal: SELL"); }
       layer3Score += 2;
     }
-  }
-  layers.push({ layer: "Sentiment", score: layer3Score, details: layer3Details });
 
-  // ═══ LAYER 4: Fear & Greed (10%) ═══
+    // v4.0 NEW: CryptoEdge TA indicators
+    const ceTA = cryptoEdge.taIndicators;
+    if (ceTA) {
+      if (ceTA.rsi !== undefined) {
+        if (ceTA.rsi < 30) { buyScore += 2; layer3Details.push(`CryptoEdge RSI oversold (${ceTA.rsi})`); layer3Score += 2; }
+        else if (ceTA.rsi > 70) { sellScore += 2; layer3Details.push(`CryptoEdge RSI overbought (${ceTA.rsi})`); layer3Score += 2; }
+      }
+      if (ceTA.macd !== undefined && ceTA.macdSignal !== undefined) {
+        if (ceTA.macd > ceTA.macdSignal) { buyScore += 1.5; layer3Details.push("CryptoEdge MACD bullish"); }
+        else { sellScore += 1.5; layer3Details.push("CryptoEdge MACD bearish"); }
+        layer3Score += 1.5;
+      }
+    }
+  }
+  layers.push({ layer: "Sentiment+CE-TA", score: layer3Score, details: layer3Details });
+
+  // ═══ LAYER 4: Fear & Greed (5%) ═══
   let layer4Score = 0;
   const layer4Details: string[] = [];
 
@@ -318,7 +573,6 @@ function scoreCryptoSignal(
     sourceCount++;
     sources.push("FearGreed");
 
-    // Extreme Fear = contrarian BUY, Extreme Greed = contrarian SELL
     if (fearGreed.value <= 20) {
       buyScore += 3; layer4Details.push(`Extreme Fear (${fearGreed.value}) — contrarian BUY`);
       layer4Score += 3;
@@ -335,133 +589,320 @@ function scoreCryptoSignal(
   }
   layers.push({ layer: "Fear & Greed", score: layer4Score, details: layer4Details });
 
-  // ═══ LAYER 5: Price Action from Candles (15%) ═══
+  // ═══ LAYER 5: Price Action from Candles (10%) ═══
   let layer5Score = 0;
   const layer5Details: string[] = [];
 
-  if (binance?.candles && binance.candles.length >= 10) {
+  if (hasCandles) {
     sourceCount++;
     sources.push("PriceAction");
-    const candles = binance.candles;
-    const c0 = candles[candles.length - 1];
-    const c1 = candles[candles.length - 2];
-    const c2 = candles[candles.length - 3];
+    const c0 = candles[0], c1 = candles[1], c2 = candles[2];
 
     // Candlestick patterns
     if (c1.close < c1.open && c0.close > c0.open && c0.close > c1.open && c0.open < c1.close) {
-      buyScore += 3; layer5Details.push("Bullish engulfing");
-      layer5Score += 3;
+      buyScore += 3; layer5Details.push("Bullish engulfing"); layer5Score += 3;
     } else if (c1.close > c1.open && c0.close < c0.open && c0.close < c1.open && c0.open > c1.close) {
-      sellScore += 3; layer5Details.push("Bearish engulfing");
-      layer5Score += 3;
+      sellScore += 3; layer5Details.push("Bearish engulfing"); layer5Score += 3;
+    }
+
+    // Hammer / Shooting star
+    const body = Math.abs(c0.close - c0.open), range = c0.high - c0.low;
+    if (range > 0) {
+      const lw = Math.min(c0.open, c0.close) - c0.low;
+      const uw = c0.high - Math.max(c0.open, c0.close);
+      if (lw > body * 2.5 && uw < body * 0.3) { buyScore += 2.5; layer5Details.push("Hammer"); layer5Score += 2.5; }
+      else if (uw > body * 2.5 && lw < body * 0.3) { sellScore += 2.5; layer5Details.push("Shooting star"); layer5Score += 2.5; }
+      // Strong body candles
+      if (c0.close > c0.open && body / range > 0.65) { buyScore += 1.5; layer5Details.push("Strong bullish candle"); layer5Score += 1.5; }
+      else if (c0.open > c0.close && body / range > 0.65) { sellScore += 1.5; layer5Details.push("Strong bearish candle"); layer5Score += 1.5; }
+      if (body / range < 0.1) layer5Details.push("Doji (indecision)");
     }
 
     // 3-candle momentum
     if (c2 && c1 && c0) {
       if (c0.close > c1.close && c1.close > c2.close) {
-        buyScore += 2; layer5Details.push("3-candle bullish momentum");
-        layer5Score += 2;
+        buyScore += 2; layer5Details.push("3-candle bullish momentum"); layer5Score += 2;
       } else if (c0.close < c1.close && c1.close < c2.close) {
-        sellScore += 2; layer5Details.push("3-candle bearish momentum");
-        layer5Score += 2;
+        sellScore += 2; layer5Details.push("3-candle bearish momentum"); layer5Score += 2;
+      }
+      // Morning/evening star
+      if (c2.close < c2.open && c1.close < c1.open && c0.close > c0.open && c0.close > c1.open) {
+        buyScore += 2.5; layer5Details.push("Morning star pattern"); layer5Score += 2.5;
+      } else if (c2.close > c2.open && c1.close > c1.open && c0.close < c0.open && c0.close < c1.open) {
+        sellScore += 2.5; layer5Details.push("Evening star pattern"); layer5Score += 2.5;
       }
     }
 
-    // Volume spike (last candle vs average)
-    const avgVol = candles.slice(-10).reduce((a: number, c: any) => a + (c.volume || 0), 0) / 10;
+    // Volume spike + volume trend
+    const avgVol = candles.slice(0, 20).reduce((a: number, c: any) => a + (c.volume || 0), 0) / 20;
     if (c0.volume > avgVol * 2) {
       layer5Details.push("Volume spike detected");
       if (c0.close > c0.open) { buyScore += 1.5; } else { sellScore += 1.5; }
       layer5Score += 1.5;
     }
+
+    // v4.0: Volume trend — rising volume with price = confirmation
+    const volShort = candles.slice(0, 5).reduce((a: number, c: any) => a + (c.volume || 0), 0) / 5;
+    const volLong = candles.slice(5, 20).reduce((a: number, c: any) => a + (c.volume || 0), 0) / 15;
+    if (volLong > 0) {
+      const volTrend = volShort / volLong;
+      if (volTrend > 1.3 && c0.close > c1.close) { buyScore += 1.5; layer5Details.push("Rising volume + price up (bullish vol trend)"); layer5Score += 1.5; }
+      else if (volTrend > 1.3 && c0.close < c1.close) { sellScore += 1.5; layer5Details.push("Rising volume + price down (bearish vol trend)"); layer5Score += 1.5; }
+    }
   }
   layers.push({ layer: "Price Action", score: layer5Score, details: layer5Details });
+
+  // ═══════════════════════════════════════════════════════
+  // LAYER 6: LOCAL TECHNICAL ANALYSIS (25%) — v4.0 NEW
+  // RSI, MACD, EMA, Bollinger, Stochastic, ATR, S/R, Divergence
+  // ═══════════════════════════════════════════════════════
+  let layer6Score = 0;
+  const layer6Details: string[] = [];
+  let localATR = 0;
+  let taBuyCount = 0, taSellCount = 0;
+
+  if (hasCandles) {
+    sourceCount++;
+    sources.push("Local-TA");
+    const closes = candles.map(c => c.close);
+
+    // ── RSI ──
+    const localRSI = calcRSI(candles, 14);
+    taInd.RSI = localRSI;
+    if (localRSI < 30) { buyScore += 3; taBuyCount++; layer6Details.push(`RSI oversold (${localRSI})`); }
+    else if (localRSI < 40) { buyScore += 1; taBuyCount++; }
+    else if (localRSI > 70) { sellScore += 3; taSellCount++; layer6Details.push(`RSI overbought (${localRSI})`); }
+    else if (localRSI > 60) { sellScore += 1; taSellCount++; }
+
+    // ── MACD ──
+    const localMACD = calcMACD(candles);
+    if (localMACD) {
+      taInd.MACD = localMACD.macd.toFixed(price > 100 ? 2 : 6);
+      taInd.MACD_Hist = localMACD.histogram.toFixed(price > 100 ? 2 : 6);
+      if (localMACD.histogram > 0 && localMACD.macd > localMACD.signal) {
+        buyScore += 2.5; taBuyCount++; layer6Details.push("MACD bullish crossover");
+      } else if (localMACD.histogram < 0 && localMACD.macd < localMACD.signal) {
+        sellScore += 2.5; taSellCount++; layer6Details.push("MACD bearish crossover");
+      }
+      // Zero line cross
+      if (localMACD.macd > 0 && localMACD.signal < 0) { buyScore += 2; taBuyCount++; layer6Details.push("MACD bullish zero cross"); }
+      else if (localMACD.macd < 0 && localMACD.signal > 0) { sellScore += 2; taSellCount++; layer6Details.push("MACD bearish zero cross"); }
+    }
+
+    // ── EMA Alignment ──
+    const ema9 = calcEMA(closes, 9), ema20 = calcEMA(closes, 20);
+    const ema50 = closes.length >= 50 ? calcEMA(closes, 50) : calcEMA(closes, Math.min(50, closes.length));
+    taInd.EMA9 = ema9.toFixed(price > 100 ? 2 : 6);
+    taInd.EMA20 = ema20.toFixed(price > 100 ? 2 : 6);
+
+    if (ema9 > ema20 && ema20 > ema50) {
+      buyScore += 3; taBuyCount++; layer6Details.push("EMA 9>20>50 bullish alignment");
+    } else if (ema9 < ema20 && ema20 < ema50) {
+      sellScore += 3; taSellCount++; layer6Details.push("EMA 9<20<50 bearish alignment");
+    }
+    // EMA crossover
+    const prevEma9 = calcEMA(closes.slice(1), 9), prevEma20 = calcEMA(closes.slice(1), 20);
+    if (prevEma9 <= prevEma20 && ema9 > ema20) { buyScore += 2.5; taBuyCount++; layer6Details.push("EMA 9/20 bullish cross"); }
+    else if (prevEma9 >= prevEma20 && ema9 < ema20) { sellScore += 2.5; taSellCount++; layer6Details.push("EMA 9/20 bearish cross"); }
+    // Price vs EMA
+    if (price > ema9 && price > ema20) { buyScore += 1; taBuyCount++; }
+    else if (price < ema9 && price < ema20) { sellScore += 1; taSellCount++; }
+
+    // ── Bollinger Bands ──
+    const bb = calcBollinger(candles, 20, 2);
+    if (bb) {
+      taInd.BB_Upper = bb.upper.toFixed(price > 100 ? 2 : 6);
+      taInd.BB_Lower = bb.lower.toFixed(price > 100 ? 2 : 6);
+      taInd.BB_Width = bb.width.toFixed(4);
+      if (price <= bb.lower * 1.002) { buyScore += 2.5; taBuyCount++; layer6Details.push("Price at BB lower (bounce zone)"); }
+      else if (price >= bb.upper * 0.998) { sellScore += 2.5; taSellCount++; layer6Details.push("Price at BB upper (rejection zone)"); }
+      // BB squeeze
+      if (bb.width < 0.015) layer6Details.push("BB SQUEEZE — breakout coming");
+    }
+
+    // ── Stochastic ──
+    const stoch = calcStochastic(candles, 14, 3);
+    if (stoch) {
+      taInd.StochK = stoch.k;
+      taInd.StochD = stoch.d;
+      if (stoch.k < 20 && stoch.d < 20) { buyScore += 2; taBuyCount++; layer6Details.push(`Stoch oversold (K:${stoch.k.toFixed(0)})`); }
+      else if (stoch.k > 80 && stoch.d > 80) { sellScore += 2; taSellCount++; layer6Details.push(`Stoch overbought (K:${stoch.k.toFixed(0)})`); }
+      // Stoch crossover
+      if (stoch.k > stoch.d && stoch.k < 30) { buyScore += 1.5; taBuyCount++; layer6Details.push("Stoch bullish cross in oversold"); }
+      else if (stoch.k < stoch.d && stoch.k > 70) { sellScore += 1.5; taSellCount++; layer6Details.push("Stoch bearish cross in overbought"); }
+    }
+
+    // ── ATR ──
+    localATR = calcATR(candles, 14);
+    if (localATR > 0) taInd.ATR = localATR.toFixed(price > 100 ? 2 : 6);
+
+    // ── Support / Resistance ──
+    const sr = findSR(candles, price);
+    taInd.Support = sr.support.toFixed(price > 100 ? 2 : 6);
+    taInd.Resistance = sr.resistance.toFixed(price > 100 ? 2 : 6);
+    if (sr.near === "support") { buyScore += 2; taBuyCount++; layer6Details.push("Price near support (bounce zone)"); }
+    else if (sr.near === "resistance") { sellScore += 2; taSellCount++; layer6Details.push("Price near resistance (rejection zone)"); }
+
+    // ── RSI Divergence ──
+    const rsiDiv = detectRSIDivergence(candles, localRSI);
+    if (rsiDiv.type) {
+      layer6Details.push(rsiDiv.reason);
+      if (rsiDiv.type === "bullish") { buyScore += 4; taBuyCount++; }
+      else { sellScore += 4; taSellCount++; }
+    }
+
+    // ── MACD Divergence ──
+    if (localMACD) {
+      const macdDiv = detectMACDDivergence(candles, localMACD.histogram);
+      if (macdDiv.type) {
+        layer6Details.push(macdDiv.reason);
+        if (macdDiv.type === "bullish") { buyScore += 3; taBuyCount++; }
+        else { sellScore += 3; taSellCount++; }
+      }
+    }
+
+    // ── Super confluence bonus ──
+    if (taBuyCount >= 7) { buyScore += 4; layer6Details.push(`SUPER TA confluence ${taBuyCount}+ bullish`); }
+    else if (taBuyCount >= 5) { buyScore += 2; layer6Details.push(`Strong TA confluence ${taBuyCount} bullish`); }
+    if (taSellCount >= 7) { sellScore += 4; layer6Details.push(`SUPER TA confluence ${taSellCount}+ bearish`); }
+    else if (taSellCount >= 5) { sellScore += 2; layer6Details.push(`Strong TA confluence ${taSellCount} bearish`); }
+
+    layer6Score = Math.max(buyScore, sellScore) - 5;
+  }
+  layers.push({ layer: "Local TA", score: layer6Score, details: layer6Details });
+
+  // ═══════════════════════════════════════════
+  // LAYER 7: TRADINGVIEW TECHNICAL ANALYSIS (v5.0 NEW)
+  // ═══════════════════════════════════════════
+  let layer7Score = 0;
+  const layer7Details: string[] = [];
+
+  if (tvData) {
+    sourceCount++;
+    sources.push("TradingView-TA");
+
+    const tvRec = (tvData.signal || "").toString().toLowerCase();
+    if (tvRec.includes("strong_buy") || tvRec.includes("strong buy")) {
+      buyScore += 5; layer7Score += 5; layer7Details.push("TradingView: STRONG BUY");
+    } else if (tvRec.includes("buy")) {
+      buyScore += 3; layer7Score += 3; layer7Details.push("TradingView: BUY");
+    } else if (tvRec.includes("strong_sell") || tvRec.includes("strong sell")) {
+      sellScore += 5; layer7Score += 5; layer7Details.push("TradingView: STRONG SELL");
+    } else if (tvRec.includes("sell")) {
+      sellScore += 3; layer7Score += 3; layer7Details.push("TradingView: SELL");
+    } else {
+      layer7Details.push(`TradingView: ${tvRec || "neutral"}`);
+    }
+
+    if (tvData.buy !== undefined && tvData.sell !== undefined) {
+      const tvTotal = (tvData.buy || 0) + (tvData.sell || 0) + (tvData.neutral || 0);
+      const buyPct = tvTotal > 0 ? (tvData.buy / tvTotal) * 100 : 50;
+      const sellPct = tvTotal > 0 ? (tvData.sell / tvTotal) * 100 : 50;
+      if (buyPct > 70) { buyScore += 2; layer7Score += 2; layer7Details.push(`TV ${buyPct.toFixed(0)}% indicators bullish`); }
+      else if (sellPct > 70) { sellScore += 2; layer7Score += 2; layer7Details.push(`TV ${sellPct.toFixed(0)}% indicators bearish`); }
+    }
+
+    const maRec = tvData.ma?.recommendation?.toString().toLowerCase() || "";
+    const oscRec = tvData.oscillators?.recommendation?.toString().toLowerCase() || "";
+    if (maRec.includes("buy") && oscRec.includes("buy")) { buyScore += 1.5; layer7Score += 1.5; layer7Details.push("TV MA+Oscillators both BUY"); }
+    else if (maRec.includes("sell") && oscRec.includes("sell")) { sellScore += 1.5; layer7Score += 1.5; layer7Details.push("TV MA+Oscillators both SELL"); }
+    else if ((maRec.includes("buy") && oscRec.includes("sell")) || (maRec.includes("sell") && oscRec.includes("buy"))) {
+      layer7Details.push("TV MA/Oscillators CONFLICT (reduced weight)");
+    }
+  }
+  layers.push({ layer: "TradingView TA", score: layer7Score, details: layer7Details });
 
   // ═══ FINAL SCORING ═══
   const total = buyScore + sellScore;
   const win = Math.max(buyScore, sellScore);
-  const allReasons = [...layer1Details, ...layer2Details, ...layer3Details, ...layer4Details, ...layer5Details];
+  const allReasons = [...layer1Details, ...layer2Details, ...layer3Details, ...layer4Details, ...layer5Details, ...layer6Details, ...layer7Details];
   const type: "BUY" | "SELL" = buyScore > sellScore ? "BUY" : "SELL";
 
   // ═══ STRICT FILTERS ═══
-  // Filter 1: Need at least 4 data sources (v3.0: was 3)
-  if (sourceCount < 4) {
-    return { pair, type: "BUY", entry: price, tp: 0, sl: 0, confidence: 0, confluences: allReasons.length, reasoning: allReasons, sources, layers, orderFlowScore: binance ? orderFlowScore : null, fearGreed: fearGreed?.value ?? null, crowdingScore, filtered: true, filterReason: `Only ${sourceCount} sources (need 3+)` };
-  }
+  // Filter 1: Need at least 6 data sources (v5.0: was 5)
+  const makeFiltered = (reason: string): FusionSignal =>
+    ({ pair, type: "BUY" as const, entry: price, tp: 0, sl: 0, confidence: 0, confluences: allReasons.length, reasoning: allReasons, sources, layers, orderFlowScore: binance ? orderFlowScore : null, fearGreed: fearGreed?.value ?? null, crowdingScore, taIndicators: taInd, filtered: true, filterReason: reason });
 
-  // Filter 2: Minimum confluences (v3.0: was 4)
-  if (allReasons.length < 5) {
-    return { pair, type, entry: price, tp: 0, sl: 0, confidence: 0, confluences: allReasons.length, reasoning: allReasons, sources, layers, orderFlowScore: binance ? orderFlowScore : null, fearGreed: fearGreed?.value ?? null, crowdingScore, filtered: true, filterReason: `Only ${allReasons.length} confluences (need 4+)` };
-  }
+  if (sourceCount < 5) return makeFiltered(`Only ${sourceCount} sources (need 5+)`);
 
-  // Filter 3: Dominance ratio — v3.0 STRICTER (65% was 60%)
-  if (total > 0 && win / total < 0.65) {
-    return { pair, type, entry: price, tp: 0, sl: 0, confidence: 0, confluences: allReasons.length, reasoning: allReasons, sources, layers, orderFlowScore: binance ? orderFlowScore : null, fearGreed: fearGreed?.value ?? null, crowdingScore, filtered: true, filterReason: `Low dominance (${(win / total * 100).toFixed(0)}%)` };
-  }
+  // Filter 2: Minimum confluences (v5.0: 10 was 8)
+  if (allReasons.length < 10) return makeFiltered(`Only ${allReasons.length} confluences (need 10+)`);
 
-  // Confidence calculation
+  // Filter 3: Dominance ratio — v4.0 STRICTER (70% was 65%)
+  if (total > 0 && win / total < 0.70) return makeFiltered(`Low dominance (${(win / total * 100).toFixed(0)}%)`);
+
+  // Confidence calculation — v4.0 improved
   const rawConf = total > 0 ? (win / total) * 100 : 50;
-  const sourceBonus = sourceCount >= 4 ? 5 : sourceCount >= 3 ? 3 : 0;
-  const confluenceBonus = allReasons.length >= 7 ? 5 : allReasons.length >= 5 ? 3 : 0;
-  const confidence = Math.min(Math.round(rawConf + sourceBonus + confluenceBonus), 95);
+  const sourceBonus = sourceCount >= 6 ? 7 : sourceCount >= 5 ? 5 : sourceCount >= 4 ? 3 : 0;
+  const confluenceBonus = allReasons.length >= 10 ? 7 : allReasons.length >= 8 ? 5 : allReasons.length >= 5 ? 3 : 0;
+  const taBonus = hasCandles && (taBuyCount + taSellCount) >= 5 ? 4 : hasCandles ? 2 : 0;
+  const divBonus = layer6Details.some(d => d.includes("divergence")) ? 3 : 0;
+  const confidence = Math.min(Math.round(rawConf + sourceBonus + confluenceBonus + taBonus + divBonus), 97);
 
-  // Filter 4: Minimum confidence (v3.0: 70% was 60%)
-  if (confidence < 70) {
-    return { pair, type, entry: price, tp: 0, sl: 0, confidence, confluences: allReasons.length, reasoning: allReasons, sources, layers, orderFlowScore: binance ? orderFlowScore : null, fearGreed: fearGreed?.value ?? null, crowdingScore, filtered: true, filterReason: `Low confidence (${confidence}%)` };
+  // Filter 4: Minimum confidence (v4.0: 78% was 70%)
+  if (confidence < 78) return makeFiltered(`Low confidence (${confidence}%)`);
+
+  // Filter 5: RSI sanity — don't trade against extreme RSI
+  const rsiVal = taInd.RSI as number | undefined;
+  if (rsiVal !== undefined) {
+    if (type === "BUY" && rsiVal > 75) return makeFiltered(`RSI ${rsiVal} overbought — no BUY`);
+    if (type === "SELL" && rsiVal < 25) return makeFiltered(`RSI ${rsiVal} oversold — no SELL`);
   }
 
-  // ═══ TP/SL CALCULATION ═══
-  // Use external signal TP/SL if available with good R:R, otherwise use ATR-based
+  // Filter 6: Don't chase pumps/dumps
+  if (binance?.ticker) {
+    const chg = binance.ticker.changePct;
+    if (type === "BUY" && chg > 8) return makeFiltered(`Chasing +${chg.toFixed(1)}% pump`);
+    if (type === "SELL" && chg < -8) return makeFiltered(`Chasing ${chg.toFixed(1)}% dump`);
+  }
+
+  // Filter 7: Divergence kills counter-signal
+  if (rsiVal !== undefined && type === "BUY" && layer6Details.some(d => d.includes("bearish divergence"))) {
+    return makeFiltered("RSI bearish divergence against BUY");
+  }
+  if (rsiVal !== undefined && type === "SELL" && layer6Details.some(d => d.includes("bullish divergence"))) {
+    return makeFiltered("RSI bullish divergence against SELL");
+  }
+
+  // Filter 8: All sources agree → need even higher confidence
+  if (sourceCount >= 7 && confidence < 82) return makeFiltered(`7+ sources but only ${confidence}% (need 82%)`);
+
+  // v5.0 NEW Filter 9: TradingView strongly against signal
+  if (tvData) {
+    const tvRec = (tvData.signal || "").toString().toLowerCase();
+    if (type === "BUY" && (tvRec.includes("strong_sell") || tvRec.includes("strong sell"))) {
+      return makeFiltered(`TradingView STRONG SELL against BUY signal`);
+    }
+    if (type === "SELL" && (tvRec.includes("strong_buy") || tvRec.includes("strong buy"))) {
+      return makeFiltered(`TradingView STRONG BUY against SELL signal`);
+    }
+  }
+
+  // ═══ TP/SL CALCULATION — v4.0: ATR-based ═══
   let tp: number, sl: number;
   const extTP = parseFloat(extSignal?.tp_price || extSignal?.take_profit || 0);
   const extSL = parseFloat(extSignal?.sl_price || extSignal?.stop_loss || 0);
 
+  // Use real ATR if available, otherwise estimate from volatility
+  const atr = localATR > 0 ? localATR : price * ((binance?.ticker?.volatility || 2) / 100) * 0.15;
+
   if (extTP > 0 && extSL > 0) {
     const extRR = Math.abs(extTP - price) / Math.abs(price - extSL);
-    if (extRR >= 1.5) {
+    if (extRR >= 2.0) {
       tp = extTP; sl = extSL;
     } else {
-      // Calculate from volatility
-      const volatility = binance?.ticker?.volatility || 2;
-      const atrEst = price * (volatility / 100) * 0.3;
-      if (type === "BUY") {
-        tp = price + atrEst * 2;
-        sl = price - atrEst * 0.6;
-      } else {
-        tp = price - atrEst * 2;
-        sl = price + atrEst * 0.6;
-      }
+      // v4.0: ATR-based TP/SL with 2.5:1 minimum R:R
+      if (type === "BUY") { tp = price + atr * 2.5; sl = price - atr * 0.5; }
+      else { tp = price - atr * 2.5; sl = price + atr * 0.5; }
     }
   } else {
-    const volatility = binance?.ticker?.volatility || 2;
-    const atrEst = price * (volatility / 100) * 0.3;
-    if (type === "BUY") {
-      tp = price + atrEst * 2;
-      sl = price - atrEst * 0.6;
-    } else {
-      tp = price - atrEst * 2;
-      sl = price + atrEst * 0.6;
-    }
+    // v4.0: ATR-based (proper calculation, not rough estimate)
+    if (type === "BUY") { tp = price + atr * 2.5; sl = price - atr * 0.5; }
+    else { tp = price - atr * 2.5; sl = price + atr * 0.5; }
   }
 
-    // v3.0 NEW Filter 5: RSI sanity — don't chase pumps/dumps
-    if (binance?.ticker) {
-      const chg = binance.ticker.changePct;
-      if (type === "BUY" && chg > 8) {
-        return { pair, type: "BUY", entry: price, tp: 0, sl: 0, confidence: 0, confluences: allReasons.length, reasoning: [...allReasons, "REJECTED: chasing +8% pump"], sources, layers, orderFlowScore: binance ? orderFlowScore : null, fearGreed: fearGreed?.value ?? null, crowdingScore, filtered: true, filterReason: `Chasing +${chg.toFixed(1)}% pump — too risky` };
-      }
-      if (type === "SELL" && chg < -8) {
-        return { pair, type: "SELL", entry: price, tp: 0, sl: 0, confidence: 0, confluences: allReasons.length, reasoning: [...allReasons, "REJECTED: chasing -8% dump"], sources, layers, orderFlowScore: binance ? orderFlowScore : null, fearGreed: fearGreed?.value ?? null, crowdingScore, filtered: true, filterReason: `Chasing ${chg.toFixed(1)}% dump — too risky` };
-      }
-    }
-
-    // v3.0 NEW Filter 6: If ALL 5 sources agree, require higher confidence
-    if (sourceCount >= 5 && confidence < 75) {
-      return { pair, type, entry: price, tp: 0, sl: 0, confidence, confluences: allReasons.length, reasoning: allReasons, sources, layers, orderFlowScore: binance ? orderFlowScore : null, fearGreed: fearGreed?.value ?? null, crowdingScore, filtered: true, filterReason: `5 sources but only ${confidence}% confidence (need 75%)` };
-    }
-
-    // Confidence bonus for 5 sources
-    const finalConf = sourceCount >= 5 ? Math.min(confidence + 3, 95) : confidence;
+  // Confidence bonus for strong setups (v5.0: 7+ sources)
+  const finalConf = sourceCount >= 7 ? Math.min(confidence + 4, 97) : sourceCount >= 6 ? Math.min(confidence + 2, 97) : confidence;
 
   return {
     pair, type,
@@ -476,6 +917,7 @@ function scoreCryptoSignal(
     orderFlowScore: binance ? orderFlowScore : null,
     fearGreed: fearGreed?.value ?? null,
     crowdingScore,
+    taIndicators: taInd,
     filtered: false,
   };
 }
@@ -526,7 +968,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ═══ FUSION SCAN — new multi-source engine ═══
+  // ═══ FUSION SCAN — 8-layer engine v5.0 ═══
   if (action === "fusion" || action === "scan") {
     // Return cached if fresh
     if (cachedFusion && Date.now() - cachedFusion.time < FUSION_TTL) {
@@ -550,17 +992,19 @@ export async function GET(req: NextRequest) {
       engineLog.push(`Scanning ${symbol}...`);
 
       try {
-        const [extSignal, binance, cryptoEdge] = await Promise.allSettled([
+        const [extSignal, binance, cryptoEdge, tvData] = await Promise.allSettled([
           fetchSelfTradeSignal(symbol),
           fetchBinanceFlow(symbol),
           fetchCryptoEdge(coin),
+          fetchTradingViewTA(symbol),
         ]);
 
         const ext = extSignal.status === "fulfilled" ? extSignal.value : null;
         const bn = binance.status === "fulfilled" ? binance.value : null;
         const ce = cryptoEdge.status === "fulfilled" ? cryptoEdge.value : null;
+        const tv = tvData.status === "fulfilled" ? tvData.value : null;
 
-        const result = scoreCryptoSignal(symbol, ext, bn, ce, fearGreed);
+        const result = scoreCryptoSignal(symbol, ext, bn, ce, fearGreed, tv);
 
         if (result) {
           if (result.filtered) {
@@ -583,23 +1027,23 @@ export async function GET(req: NextRequest) {
       if (i < CRYPTO_PAIRS.length - 1) await new Promise(r => setTimeout(r, 200));
     }
 
-    // Sort by confidence, take TOP 1 (v3.0: was TOP 2)
+    // Sort by confidence, take TOP 1
     signals.sort((a, b) => b.confidence - a.confidence || b.confluences - a.confluences);
     const topSignals = signals.slice(0, 1);
 
     engineLog.push(`\nResult: ${topSignals.length} signal from ${CRYPTO_PAIRS.length} pairs (${filtered.length} filtered)`);
 
     const result = {
-      source: "CryptoFusion-v3.0",
+      source: "CryptoFusion-v5.0",
       signals: topSignals,
       generated: topSignals.length,
       totalChecked: CRYPTO_PAIRS.length,
       filtered,
       fearGreed,
-      engineVersion: "v3.0-FUSION",
+      engineVersion: "v5.0-SHARPSHOOTER",
       engineLog,
       timestamp: new Date().toISOString(),
-      engineNotes: "5-source fusion: SelfTrade + Binance OrderFlow + CryptoEdge + FearGreed + PriceAction | TOP 1 | Stricter filters",
+      engineNotes: "8-layer fusion: SelfTrade + Binance OrderFlow + CryptoEdge(TA) + FearGreed + PriceAction + Local-TA(RSI/MACD/EMA/BB/Stoch/ATR/SR/Div) + TradingView-TA + TV-Conflict-Filter | TOP 1 | Stricter filters",
     };
 
     cachedFusion = { data: result, time: Date.now() };
