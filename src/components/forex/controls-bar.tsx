@@ -98,12 +98,12 @@ export function ControlsBar({
   };
 
   return (
-    <div className="flex items-center gap-2 flex-wrap border-b bg-card/60 px-4 py-2.5">
+    <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap border-b bg-card/60 px-2 sm:px-4 py-2 sm:py-2.5">
       {/* Pair Filter */}
       <div className="flex items-center gap-1.5">
         <Filter className="size-3.5 text-muted-foreground" />
         <Select value={selectedPair} onValueChange={handlePairChange}>
-          <SelectTrigger size="sm" className="w-[130px]">
+          <SelectTrigger size="sm" className="w-[100px] sm:w-[130px]">
             <SelectValue placeholder="All Pairs" />
           </SelectTrigger>
           <SelectContent>
@@ -123,7 +123,7 @@ export function ControlsBar({
         <div className="flex items-center gap-1.5">
           <Clock className="size-3.5 text-muted-foreground" />
           <Select value={sessionFilter} onValueChange={setSessionFilter}>
-            <SelectTrigger size="sm" className="w-[130px]">
+            <SelectTrigger size="sm" className="w-[100px] sm:w-[130px]">
               <SelectValue placeholder="Session" />
             </SelectTrigger>
             <SelectContent>
@@ -176,7 +176,7 @@ export function ControlsBar({
         />
         <Label
           htmlFor="trading-mode"
-          className={`text-xs font-semibold cursor-pointer flex items-center gap-1.5 transition-colors ${
+          className={`text-[10px] sm:text-xs font-semibold cursor-pointer flex items-center gap-1 sm:gap-1.5 transition-colors ${
             tradingMode ? "text-emerald-500" : "text-muted-foreground"
           }`}
         >

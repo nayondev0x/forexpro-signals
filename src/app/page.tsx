@@ -468,10 +468,10 @@ export default function Home() {
             className="w-full"
             onValueChange={(v) => setActiveTab(v)}
           >
-            <TabsList className="mb-4 flex-wrap bg-card/80 border border-border/30 h-auto p-1 gap-1">
-              <TabsTrigger value="active" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-500 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <Activity className="h-4 w-4" />Signals
+            <TabsList className="mb-4 flex-wrap bg-card/80 border border-border/30 h-auto p-1 gap-0.5 sm:gap-1 max-h-[140px] sm:max-h-none overflow-y-auto sm:overflow-visible">
+              <TabsTrigger value="active" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-500 text-[10px] sm:text-xs px-1.5 sm:px-3 py-1 sm:py-1.5">
+                <span className="flex items-center gap-1 sm:gap-1.5">
+                  <Activity className="h-3 w-3 sm:h-4 sm:w-4" />Signals
                   {activeSignals.length > 0 && (
                     <span className="ml-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-500/20 px-1 text-[10px] font-bold text-emerald-500">
                       {activeSignals.length}
@@ -479,9 +479,9 @@ export default function Home() {
                   )}
                 </span>
               </TabsTrigger>
-              <TabsTrigger value="history" className="data-[state=active]:bg-sky-500/20 data-[state=active]:text-sky-500 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <BarChart3 className="h-4 w-4" />History
+              <TabsTrigger value="history" className="data-[state=active]:bg-sky-500/20 data-[state=active]:text-sky-500 text-[10px] sm:text-xs px-1.5 sm:px-3 py-1 sm:py-1.5">
+                <span className="flex items-center gap-1 sm:gap-1.5">
+                  <BarChart3 className="h-3 w-3 sm:h-4 sm:w-4" />History
                   {totalResults > 0 && (
                     <span className="ml-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-sky-500/20 px-1 text-[10px] font-bold text-sky-500">
                       {totalResults}
@@ -489,79 +489,79 @@ export default function Home() {
                   )}
                 </span>
               </TabsTrigger>
-              <TabsTrigger value="market" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-500 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <TrendingUp className="h-4 w-4" />Market
+              <TabsTrigger value="market" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-500 text-[10px] sm:text-xs px-1.5 sm:px-3 py-1 sm:py-1.5">
+                <span className="flex items-center gap-1 sm:gap-1.5">
+                  <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4" />Market
                 </span>
               </TabsTrigger>
-              <TabsTrigger value="chart" className="data-[state=active]:bg-violet-500/20 data-[state=active]:text-violet-500 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <BarChart3 className="h-4 w-4" />Chart
+              <TabsTrigger value="chart" className="data-[state=active]:bg-violet-500/20 data-[state=active]:text-violet-500 text-[10px] sm:text-xs px-1.5 sm:px-3 py-1 sm:py-1.5">
+                <span className="flex items-center gap-1 sm:gap-1.5">
+                  <BarChart3 className="h-3 w-3 sm:h-4 sm:w-4" />Chart
                 </span>
               </TabsTrigger>
-              <TabsTrigger value="performance" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-500 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <Trophy className="h-4 w-4" />Stats
+              <TabsTrigger value="performance" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-500 text-[10px] sm:text-xs px-1.5 sm:px-3 py-1 sm:py-1.5">
+                <span className="flex items-center gap-1 sm:gap-1.5">
+                  <Trophy className="h-3 w-3 sm:h-4 sm:w-4" />Stats
                 </span>
               </TabsTrigger>
-              <TabsTrigger value="calculator" className="data-[state=active]:bg-orange-500/20 data-[state=active]:text-orange-500 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <Target className="h-4 w-4" />Risk
+              <TabsTrigger value="calculator" className="data-[state=active]:bg-orange-500/20 data-[state=active]:text-orange-500 text-[10px] sm:text-xs px-1.5 sm:px-3 py-1 sm:py-1.5">
+                <span className="flex items-center gap-1 sm:gap-1.5">
+                  <Target className="h-3 w-3 sm:h-4 sm:w-4" />Risk
                 </span>
               </TabsTrigger>
-              <TabsTrigger value="calendar" className="data-[state=active]:bg-pink-500/20 data-[state=active]:text-pink-500 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <Clock className="h-4 w-4" />Calendar
+              <TabsTrigger value="calendar" className="data-[state=active]:bg-pink-500/20 data-[state=active]:text-pink-500 text-[10px] sm:text-xs px-1.5 sm:px-3 py-1 sm:py-1.5">
+                <span className="flex items-center gap-1 sm:gap-1.5">
+                  <Clock className="h-3 w-3 sm:h-4 sm:w-4" />Calendar
                 </span>
               </TabsTrigger>
-              <TabsTrigger value="news" className="data-[state=active]:bg-indigo-500/20 data-[state=active]:text-indigo-500 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <Newspaper className="h-4 w-4" />News
+              <TabsTrigger value="news" className="data-[state=active]:bg-indigo-500/20 data-[state=active]:text-indigo-500 text-[10px] sm:text-xs px-1.5 sm:px-3 py-1 sm:py-1.5">
+                <span className="flex items-center gap-1 sm:gap-1.5">
+                  <Newspaper className="h-3 w-3 sm:h-4 sm:w-4" />News
                 </span>
               </TabsTrigger>
-              <TabsTrigger value="movers" className="data-[state=active]:bg-orange-500/20 data-[state=active]:text-orange-500 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <ActivityIcon className="h-4 w-4" />Movers
+              <TabsTrigger value="movers" className="data-[state=active]:bg-orange-500/20 data-[state=active]:text-orange-500 text-[10px] sm:text-xs px-1.5 sm:px-3 py-1 sm:py-1.5">
+                <span className="flex items-center gap-1 sm:gap-1.5">
+                  <ActivityIcon className="h-3 w-3 sm:h-4 sm:w-4" />Movers
                 </span>
               </TabsTrigger>
-              <TabsTrigger value="commodities" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-500 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <Coins className="h-4 w-4" />Gold/Comm
+              <TabsTrigger value="commodities" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-500 text-[10px] sm:text-xs px-1.5 sm:px-3 py-1 sm:py-1.5">
+                <span className="flex items-center gap-1 sm:gap-1.5">
+                  <Coins className="h-3 w-3 sm:h-4 sm:w-4" />Gold/Comm
                 </span>
               </TabsTrigger>
-              <TabsTrigger value="stocks" className="data-[state=active]:bg-orange-500/20 data-[state=active]:text-orange-500 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <LineChart className="h-4 w-4" />Stocks
+              <TabsTrigger value="stocks" className="data-[state=active]:bg-orange-500/20 data-[state=active]:text-orange-500 text-[10px] sm:text-xs px-1.5 sm:px-3 py-1 sm:py-1.5">
+                <span className="flex items-center gap-1 sm:gap-1.5">
+                  <LineChart className="h-3 w-3 sm:h-4 sm:w-4" />Stocks
                 </span>
               </TabsTrigger>
-              <TabsTrigger value="crypto" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-500 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <Bitcoin className="h-4 w-4" />Crypto
+              <TabsTrigger value="crypto" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-500 text-[10px] sm:text-xs px-1.5 sm:px-3 py-1 sm:py-1.5">
+                <span className="flex items-center gap-1 sm:gap-1.5">
+                  <Bitcoin className="h-3 w-3 sm:h-4 sm:w-4" />Crypto
                 </span>
               </TabsTrigger>
-              <TabsTrigger value="heatmap" className="data-[state=active]:bg-orange-500/20 data-[state=active]:text-orange-500 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <Flame className="h-4 w-4" />Heatmap
+              <TabsTrigger value="heatmap" className="data-[state=active]:bg-orange-500/20 data-[state=active]:text-orange-500 text-[10px] sm:text-xs px-1.5 sm:px-3 py-1 sm:py-1.5">
+                <span className="flex items-center gap-1 sm:gap-1.5">
+                  <Flame className="h-3 w-3 sm:h-4 sm:w-4" />Heatmap
                 </span>
               </TabsTrigger>
-              <TabsTrigger value="finviz" className="data-[state=active]:bg-blue-500/20 data-[state=active]:text-blue-500 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <LayoutGrid className="h-4 w-4" />Finviz
+              <TabsTrigger value="finviz" className="data-[state=active]:bg-blue-500/20 data-[state=active]:text-blue-500 text-[10px] sm:text-xs px-1.5 sm:px-3 py-1 sm:py-1.5">
+                <span className="flex items-center gap-1 sm:gap-1.5">
+                  <LayoutGrid className="h-3 w-3 sm:h-4 sm:w-4" />Finviz
                 </span>
               </TabsTrigger>
-              <TabsTrigger value="tv-ta" className="data-[state=active]:bg-violet-500/20 data-[state=active]:text-violet-500 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <Target className="h-4 w-4" />TV Pivots
+              <TabsTrigger value="tv-ta" className="data-[state=active]:bg-violet-500/20 data-[state=active]:text-violet-500 text-[10px] sm:text-xs px-1.5 sm:px-3 py-1 sm:py-1.5">
+                <span className="flex items-center gap-1 sm:gap-1.5">
+                  <Target className="h-3 w-3 sm:h-4 sm:w-4" />TV Pivots
                 </span>
               </TabsTrigger>
-              <TabsTrigger value="tv-analyst" className="data-[state=active]:bg-blue-500/20 data-[state=active]:text-blue-500 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <Users className="h-4 w-4" />Analysts
+              <TabsTrigger value="tv-analyst" className="data-[state=active]:bg-blue-500/20 data-[state=active]:text-blue-500 text-[10px] sm:text-xs px-1.5 sm:px-3 py-1 sm:py-1.5">
+                <span className="flex items-center gap-1 sm:gap-1.5">
+                  <Users className="h-3 w-3 sm:h-4 sm:w-4" />Analysts
                 </span>
               </TabsTrigger>
-              <TabsTrigger value="tv-crypto" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-500 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <Bitcoin className="h-4 w-4" />Crypto Scr
+              <TabsTrigger value="tv-crypto" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-500 text-[10px] sm:text-xs px-1.5 sm:px-3 py-1 sm:py-1.5">
+                <span className="flex items-center gap-1 sm:gap-1.5">
+                  <Bitcoin className="h-3 w-3 sm:h-4 sm:w-4" />Crypto Scr
                 </span>
               </TabsTrigger>
             </TabsList>
