@@ -566,12 +566,12 @@ export default function Home() {
               </TabsTrigger>
             </TabsList>
 
-            {/* Active Signals — 2 BIG CARDS */}
+            {/* Active Signals — 1 KILLER CARD */}
             <TabsContent value="active">
               <ErrorBoundary>
                 {loading ? (
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    {Array.from({ length: 2 }).map((_, i) => (
+                  <div className="grid gap-4 sm:grid-cols-1 max-w-2xl mx-auto">
+                    {Array.from({ length: 1 }).map((_, i) => (
                       <SignalCardSkeleton key={i} />
                     ))}
                   </div>
@@ -582,10 +582,10 @@ export default function Home() {
                         <>
                           <RefreshCw className="mb-4 h-12 w-12 text-cyan-500/50 animate-spin" />
                           <p className="text-lg font-bold text-cyan-500">
-                            Scanning 9 pairs with 28 indicators...
+                            Scanning 12 pairs with 6 layers...
                           </p>
                           <p className="mt-1 text-sm text-muted-foreground">
-                            Only the strongest signals (85%+ confidence, 10+ confluences) will appear
+                            Only the KILLER signal (92%+ confidence, 16+ confluences, MTF aligned) will appear
                           </p>
                           <p className="mt-1 text-xs text-muted-foreground/60">
                             Next scan in {nextScanIn}s | Next auto-refresh: {SCAN_INTERVAL_MS / 1000}s
@@ -598,7 +598,7 @@ export default function Home() {
                             No qualifying signals right now
                           </p>
                           <p className="mb-2 text-sm text-muted-foreground/60">
-                            Engine requires 85%+ confidence with 10+ indicator confluences
+                            Engine requires 92%+ confidence, 16+ confluences, multi-timeframe alignment
                           </p>
                           <button
                             onClick={refreshSignals}
@@ -612,7 +612,7 @@ export default function Home() {
                     </CardContent>
                   </Card>
                 ) : (
-                  <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="grid gap-4 sm:grid-cols-1 max-w-2xl mx-auto">
                     {activeSignals.map((s) => {
                       const lp = prices.find((p) => p.pair === s.pair)?.bid;
                       return (
