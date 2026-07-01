@@ -40,6 +40,7 @@ import { SignalDetailSheet } from "@/components/forex/signal-detail-sheet";
 import { PerformanceDashboard } from "@/components/forex/performance-dashboard";
 import { MarketNews } from "@/components/forex/market-news";
 import { StockPrices } from "@/components/stocks/stock-prices";
+import { StockSignals } from "@/components/stocks/stock-signals";
 import { CryptoSignals } from "@/components/crypto/crypto-signals";
 import { FinvizDashboard } from "@/components/finviz/finviz-dashboard";
 import { OffBanner } from "@/components/forex/off-banner";
@@ -738,10 +739,13 @@ export default function Home() {
               </ErrorBoundary>
             </TabsContent>
 
-            {/* Stock Prices */}
+            {/* Stock Prices + 35-Agent Signals */}
             <TabsContent value="stocks">
               <ErrorBoundary>
-                <StockPrices />
+                <StockSignals />
+                <div className="mt-6">
+                  <StockPrices />
+                </div>
               </ErrorBoundary>
             </TabsContent>
 
