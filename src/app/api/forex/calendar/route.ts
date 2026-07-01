@@ -82,10 +82,12 @@ function normalizeTEEvent(e: any): any {
   const dateStr = e.date || "";
   let date = "";
   let time = "";
+  let sortTs = 0;
   if (dateStr) {
     try {
       const d = new Date(dateStr);
       if (!isNaN(d.getTime())) {
+        sortTs = d.getTime();
         date = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
         time = d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
       }
@@ -102,6 +104,7 @@ function normalizeTEEvent(e: any): any {
   return {
     date,
     time,
+    sortTs,
     currency,
     event: e.eventName || e.event || "Unknown",
     impact,
@@ -153,10 +156,12 @@ function normalizeTCEvent(e: any): any {
   const startStr = e.start || "";
   let date = "";
   let time = "";
+  let sortTs = 0;
   if (startStr) {
     try {
       const d = new Date(startStr);
       if (!isNaN(d.getTime())) {
+        sortTs = d.getTime();
         date = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
         time = d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
       }
@@ -175,6 +180,7 @@ function normalizeTCEvent(e: any): any {
   return {
     date,
     time,
+    sortTs,
     currency: (e.country || e.currency || "").toUpperCase(),
     event: e.title || e.event || e.name || "Unknown",
     impact,
@@ -237,12 +243,8 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Sort by date+time
-    events.sort((a, b) => {
-      const da = new Date(a.date + "T" + a.time).getTime();
-      const db = new Date(b.date + "T" + b.time).getTime();
-      return da - db;
-    });
+    // Sort by raw timestamp
+    events.sort((a, b) => (a.sortTs || 0) - (b.sortTs || 0));
 
     const data = {
       events: events.slice(0, 80),

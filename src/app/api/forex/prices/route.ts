@@ -47,32 +47,28 @@ class DualApiManager {
   }
 
   /** Get next available key from a specific service pool */
-  private getNextKey(pool: ApiKey[], idxRef: { value: number }): ApiKey | null {
+  private getNextKey(pool: ApiKey[], isTD: boolean): ApiKey | null {
     const now = Date.now();
-    const available = pool.filter(k => k.limitedUntil <= now);
-    if (available.length === 0) return null; // All keys rate limited
-
-    // Round-robin within available keys
-    const start = idxRef.value % pool.length;
+    const idx = isTD ? this.tdIdx : this.avIdx;
     for (let i = 0; i < pool.length; i++) {
-      const j = (start + i) % pool.length;
+      const j = (idx + i) % pool.length;
       if (pool[j].limitedUntil <= now) {
-        idxRef.value = j + 1;
+        if (isTD) this.tdIdx = j + 1; else this.avIdx = j + 1;
         pool[j].callCount++;
         return pool[j];
       }
     }
-    return available[0];
+    return null;
   }
 
   /** Get a Twelve Data key */
   getTD(): ApiKey | null {
-    return this.getNextKey(this.tdKeys, { value: this.tdIdx });
+    return this.getNextKey(this.tdKeys, true);
   }
 
   /** Get an Alpha Vantage key */
   getAV(): ApiKey | null {
-    return this.getNextKey(this.avKeys, { value: this.avIdx });
+    return this.getNextKey(this.avKeys, false);
   }
 
   /** Mark a specific key as rate limited */

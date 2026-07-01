@@ -24,6 +24,7 @@ export async function GET() {
           "x-rapidapi-host": apiHost,
           "Content-Type": "application/json",
         },
+        signal: AbortSignal.timeout(10000),
         next: { revalidate: 0 },
       }),
       fetch(`https://${apiHost}/v1/news/top?count=15`, {
@@ -32,6 +33,7 @@ export async function GET() {
           "x-rapidapi-host": apiHost,
           "Content-Type": "application/json",
         },
+        signal: AbortSignal.timeout(10000),
         next: { revalidate: 0 },
       }),
     ]);

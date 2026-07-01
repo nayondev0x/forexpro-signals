@@ -118,17 +118,22 @@ class DualApiManager {
     console.log(`[DualAPI] TD: ${this.tdKeys.length}, AV: ${this.avKeys.length}`);
   }
 
-  private next(pool: ApiKey[], ref: { value: number }): ApiKey | null {
+  private next(pool: ApiKey[], isTD: boolean): ApiKey | null {
     const now = Date.now();
+    const idx = isTD ? this.tdIdx : this.avIdx;
     for (let i = 0; i < pool.length; i++) {
-      const j = (ref.value + i) % pool.length;
-      if (pool[j].limitedUntil <= now) { ref.value = j + 1; pool[j].callCount++; return pool[j]; }
+      const j = (idx + i) % pool.length;
+      if (pool[j].limitedUntil <= now) {
+        if (isTD) this.tdIdx = j + 1; else this.avIdx = j + 1;
+        pool[j].callCount++;
+        return pool[j];
+      }
     }
     return null;
   }
 
-  getTD() { return this.next(this.tdKeys, { value: this.tdIdx }); }
-  getAV() { return this.next(this.avKeys, { value: this.avIdx }); }
+  getTD() { return this.next(this.tdKeys, true); }
+  getAV() { return this.next(this.avKeys, false); }
 
   markLimited(id: string, s = 60) {
     [...this.tdKeys, ...this.avKeys].find(k => k.id === id && (k.limitedUntil = Date.now() + s * 1000));

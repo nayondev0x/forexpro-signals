@@ -35,17 +35,21 @@ class DualApiManager {
     console.log(`[DualAPI] TD keys: ${this.tdKeys.length}, AV keys: ${this.avKeys.length} (total: ${this.tdKeys.length + this.avKeys.length})`);
   }
 
-  private getNext(pool: ApiKey[], idxRef: { value: number }): ApiKey | null {
+  private getNext(pool: ApiKey[], isTD: boolean): ApiKey | null {
     const now = Date.now();
+    const idx = isTD ? this.tdIdx : this.avIdx;
     for (let i = 0; i < pool.length; i++) {
-      const j = (idxRef.value + i) % pool.length;
-      if (pool[j].limitedUntil <= now) { idxRef.value = j + 1; return pool[j]; }
+      const j = (idx + i) % pool.length;
+      if (pool[j].limitedUntil <= now) {
+        if (isTD) this.tdIdx = j + 1; else this.avIdx = j + 1;
+        return pool[j];
+      }
     }
     return null;
   }
 
-  getTD() { return this.getNext(this.tdKeys, { value: this.tdIdx }); }
-  getAV() { return this.getNext(this.avKeys, { value: this.avIdx }); }
+  getTD() { return this.getNext(this.tdKeys, true); }
+  getAV() { return this.getNext(this.avKeys, false); }
 
   markLimited(keyId: string, secs = 60) {
     const k = [...this.tdKeys, ...this.avKeys].find(x => x.id === keyId);
@@ -60,7 +64,7 @@ class DualApiManager {
       const url = new URL(`https://${k.host}${endpoint}`);
       Object.entries(params).forEach(([pk, v]) => url.searchParams.set(pk, v));
       try {
-        const r = await fetch(url.toString(), { headers: { "x-rapidapi-key": k.key, "x-rapidapi-host": k.host } });
+        const r = await fetch(url.toString(), { headers: { "x-rapidapi-key": k.key, "x-rapidapi-host": k.host }, signal: AbortSignal.timeout(10000) });
         if (r.status === 429) { this.markLimited(k.id, 60); continue; }
         if (!r.ok) throw new Error(`TD ${r.status}`);
         return await r.json();
@@ -76,7 +80,7 @@ class DualApiManager {
       const url = new URL(`https://${k.host}/query`);
       Object.entries(params).forEach(([pk, v]) => url.searchParams.set(pk, v));
       try {
-        const r = await fetch(url.toString(), { headers: { "x-rapidapi-key": k.key, "x-rapidapi-host": k.host } });
+        const r = await fetch(url.toString(), { headers: { "x-rapidapi-key": k.key, "x-rapidapi-host": k.host }, signal: AbortSignal.timeout(10000) });
         if (r.status === 429) { this.markLimited(k.id, 60); continue; }
         if (!r.ok) throw new Error(`AV ${r.status}`);
         return await r.json();

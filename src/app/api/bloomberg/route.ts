@@ -9,6 +9,7 @@ async function bloomGet(path: string) {
       headers: {
         "Content-Type": "application/json",
         "x-rapidapi-key": API_KEY,
+        "x-rapidapi-host": HOST,
       },
       signal: AbortSignal.timeout(15000),
     });
@@ -104,7 +105,7 @@ export async function GET(req: NextRequest) {
       // ── Commodities (Gold, Oil, Silver, etc.) ──
       case "commodities": {
         const data = await bloomGet(
-          "/markets/compact?ids=gc1%2Ccl1%2Csi1%2Cho1%2Cng1%2Cco1%2Ckc1%2Cct1%2Csb1%2Cw%201%2Cc%201%2Cs%201%2Cxb1%2Crs1%2Crr1%2Ccp1%2Cqs1%2Cjo1%2Csm1%2Cfc1%2Cdl1%2Cjg1%2Cji1%2Cjn1%2Cjx1%2Ckc1%2Clc1%2Clh1%2Cxaueur%3Acur%2Cxaugbp%3Acur%2Cxagusd%3Acur%2Cxagjpy%3Acur%2Cxageur%3Acur%2Cxaginr%3Acur%2Cxpt%3Acur%2Cxpd%3Acur"
+          "/markets/compact?ids=gc1%2Ccl1%2Csi1%2Cho1%2Cng1%2Cco1%2Ckc1%2Cct1%2Csb1%2Cw%201%2Cc%201%2Cs%201%2Cxb1%2Crs1%2Crr1%2Ccp1%2Cqs1%2Cjo1%2Csm1%2Cfc1%2Cdl1%2Cjg1%2Cji1%2Cjn1%2Cjx1%2Clc1%2Clh1%2Cxaueur%3Acur%2Cxaugbp%3Acur%2Cxagusd%3Acur%2Cxagjpy%3Acur%2Cxageur%3Acur%2Cxaginr%3Acur%2Cxpt%3Acur%2Cxpd%3Acur"
         );
         if (!data?.data) return NextResponse.json({ commodities: [] });
         const commodities = Object.entries(data.data).map(([id, d]: [string, any]) => ({
@@ -153,7 +154,7 @@ export async function GET(req: NextRequest) {
       case "key-stats": {
         const ticker = searchParams.get("ticker");
         if (!ticker) return NextResponse.json({ error: "ticker required" }, { status: 400 });
-        const data = await bloomGet(`/stocks/key-stats?query=${ticker}`);
+        const data = await bloomGet(`/stocks/key-stats?query=${encodeURIComponent(ticker)}`);
         return NextResponse.json(data?.data || {});
       }
 
@@ -161,7 +162,7 @@ export async function GET(req: NextRequest) {
       case "financials": {
         const ticker = searchParams.get("ticker");
         if (!ticker) return NextResponse.json({ error: "ticker required" }, { status: 400 });
-        const data = await bloomGet(`/stocks/financials?query=${ticker}`);
+        const data = await bloomGet(`/stocks/financials?query=${encodeURIComponent(ticker)}`);
         return NextResponse.json(data?.data || {});
       }
 

@@ -54,22 +54,22 @@ interface MultiframeData {
 }
 
 /* ─ Fetch helpers ─ */
-async function fetchWithTimeout(url: string, timeout = 12000): Promise<Response> {
+async function fetchWithTimeout(url: string, host: string, timeout = 12000): Promise<Response> {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeout);
   try {
     const res = await fetch(url, {
       signal: controller.signal,
       headers: {
-        "Content-Type": "application/json",
         "x-rapidapi-key": API_KEY,
+        "x-rapidapi-host": host,
       },
     });
     clearTimeout(id);
     return res;
-  } catch {
+  } catch (e) {
     clearTimeout(id);
-    throw new Error("Timeout");
+    throw e;
   }
 }
 
@@ -77,7 +77,8 @@ async function fetchWithTimeout(url: string, timeout = 12000): Promise<Response>
 async function getAgentSignal(ticker: string): Promise<SignalData | null> {
   try {
     const res = await fetchWithTimeout(
-      `https://${TECH_SIGNAL_HOST}/signal?ticker=${ticker}`,
+      `https://${TECH_SIGNAL_HOST}/signal?ticker=${encodeURIComponent(ticker)}`,
+      TECH_SIGNAL_HOST,
       15000
     );
     if (!res.ok) return null;
@@ -91,7 +92,8 @@ async function getAgentSignal(ticker: string): Promise<SignalData | null> {
 async function getIndicators(ticker: string): Promise<IndicatorData | null> {
   try {
     const res = await fetchWithTimeout(
-      `https://${TECH_SIGNAL_HOST}/indicators?ticker=${ticker}`,
+      `https://${TECH_SIGNAL_HOST}/indicators?ticker=${encodeURIComponent(ticker)}`,
+      TECH_SIGNAL_HOST,
       15000
     );
     if (!res.ok) return null;
@@ -105,7 +107,8 @@ async function getIndicators(ticker: string): Promise<IndicatorData | null> {
 async function getSentiment(ticker: string): Promise<SentimentData | null> {
   try {
     const res = await fetchWithTimeout(
-      `https://${TRADERS_HUB_HOST}/v1/sentiment?headlines=20&ticker=${ticker}`,
+      `https://${TRADERS_HUB_HOST}/v1/sentiment?headlines=20&ticker=${encodeURIComponent(ticker)}`,
+      TRADERS_HUB_HOST,
       12000
     );
     if (!res.ok) return null;
@@ -119,7 +122,8 @@ async function getSentiment(ticker: string): Promise<SentimentData | null> {
 async function getMultiframe(ticker: string): Promise<MultiframeData | null> {
   try {
     const res = await fetchWithTimeout(
-      `https://${TRADERS_HUB_HOST}/v1/multiframe?ticker=${ticker}`,
+      `https://${TRADERS_HUB_HOST}/v1/multiframe?ticker=${encodeURIComponent(ticker)}`,
+      TRADERS_HUB_HOST,
       12000
     );
     if (!res.ok) return null;

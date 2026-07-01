@@ -9,9 +9,17 @@ import { NextRequest, NextResponse } from "next/server";
 const STOCK_API_KEY = process.env.STOCK_PRICES_API_KEY || "";
 const STOCK_API_HOST = process.env.STOCK_PRICES_API_HOST || "stock-prices2.p.rapidapi.com";
 
-// In-memory cache
+// In-memory cache with auto-cleanup
 const cache = new Map<string, { data: any; expires: number }>();
 const CACHE_TTL = 2 * 60 * 1000; // 2 minutes
+
+// Periodic cache cleanup every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of cache) {
+    if (val.expires <= now) cache.delete(key);
+  }
+}, 5 * 60 * 1000);
 
 const VALID_RANGES = ["1d", "5d", "1mo", "ytd", "max"] as const;
 type Range = (typeof VALID_RANGES)[number];
