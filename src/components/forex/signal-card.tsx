@@ -1,8 +1,6 @@
 "use client";
 
 import {
-  TrendingUp,
-  TrendingDown,
   Target,
   ShieldAlert,
   Clock,
@@ -28,6 +26,7 @@ import { ConfidenceBar } from "./confidence-bar";
 import { IndicatorsPanel } from "./indicators-panel";
 import { PulseDot } from "./pulse-dot";
 import { CountdownTimer } from "./countdown-timer";
+import { MiniChart } from "./mini-chart";
 import {
   formatTime,
   formatPrice,
@@ -100,11 +99,13 @@ export function SignalCard({
 
   return (
     <Card
-      className={`relative overflow-hidden border transition-all duration-500 cursor-pointer hover:border-foreground/20 ${
+      className={`relative overflow-hidden border-2 transition-all duration-500 cursor-pointer ${
         isNew
-          ? "border-amber-400/60 shadow-lg shadow-amber-400/10"
+          ? "border-amber-400/70 shadow-2xl shadow-amber-400/15"
           : isActive
-            ? "border-border/40 bg-card/80"
+            ? isBuy
+              ? "border-emerald-500/40 bg-card/90 shadow-lg shadow-emerald-500/5"
+              : "border-rose-500/40 bg-card/90 shadow-lg shadow-rose-500/5"
             : isTP
               ? "border-emerald-500/40 bg-emerald-500/5"
               : "border-rose-500/30 bg-card/40 opacity-80"
@@ -112,15 +113,15 @@ export function SignalCard({
       onClick={onClick}
     >
       {isNew && (
-        <div className="absolute top-0 right-0 flex items-center gap-1 rounded-bl-lg bg-amber-500 px-2.5 py-1 text-xs font-bold text-black">
-          <Zap className="h-3 w-3" /> NEW SIGNAL
+        <div className="absolute top-0 right-0 flex items-center gap-1.5 rounded-bl-xl bg-amber-500 px-3 py-1.5 text-xs font-black text-black z-20">
+          <Zap className="h-3.5 w-3.5" /> NEW SIGNAL
         </div>
       )}
 
       {/* Result banner for completed signals */}
       {!isActive && (
         <div
-          className={`flex items-center justify-center gap-2 py-2 text-sm font-black ${
+          className={`flex items-center justify-center gap-2 py-3 text-base font-black ${
             isTP
               ? "bg-emerald-500/20 text-emerald-500"
               : isSL
@@ -130,51 +131,28 @@ export function SignalCard({
         >
           {isTP ? (
             <>
-              <CheckCircle2 className="h-5 w-5" /> TP HIT — +{signal.pips || 0} PIPS
+              <CheckCircle2 className="h-6 w-6" /> TP HIT — +{signal.pips || 0} PIPS
             </>
           ) : isSL ? (
             <>
-              <XCircle className="h-5 w-5" /> SL HIT — {signal.pips || 0} PIPS
+              <XCircle className="h-6 w-6" /> SL HIT — {signal.pips || 0} PIPS
             </>
           ) : (
             <>
-              <AlertTriangle className="h-5 w-5" /> EXPIRED — {signal.pips || 0} PIPS
+              <AlertTriangle className="h-6 w-6" /> EXPIRED — {signal.pips || 0} PIPS
             </>
           )}
         </div>
       )}
 
-      <CardContent className="p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            {isActive ? (
-              isBuy ? (
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/20 border border-emerald-500/30">
-                  <TrendingUp className="h-6 w-6 text-emerald-500" />
-                </div>
-              ) : (
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-500/20 border border-rose-500/30">
-                  <TrendingDown className="h-6 w-6 text-rose-500" />
-                </div>
-              )
-            ) : (
-              <div
-                className={`flex h-10 w-10 items-center justify-center rounded-xl border ${
-                  isTP
-                    ? "bg-emerald-500/20 border-emerald-500/30"
-                    : "bg-rose-500/20 border-rose-500/30"
-                }`}
-              >
-                {isTP ? (
-                  <Target className="h-6 w-6 text-emerald-500" />
-                ) : (
-                  <ShieldAlert className="h-6 w-6 text-rose-500" />
-                )}
-              </div>
-            )}
+      <CardContent className="p-5">
+        {/* ═══ TOP ROW: PAIR + BIG BUY/SELL ═══ */}
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            {/* Pair info */}
             <div>
-              <div className="flex items-center gap-1.5">
-                <h3 className="text-base font-black text-foreground">
+              <div className="flex items-center gap-2">
+                <h3 className="text-xl font-black text-foreground tracking-tight">
                   {signal.pair}
                 </h3>
                 {signal.source && (
@@ -193,79 +171,124 @@ export function SignalCard({
                   </TooltipProvider>
                 )}
               </div>
-              <p className="text-[10px] text-muted-foreground font-mono">{signal.id}</p>
+              <p className="text-[10px] text-muted-foreground font-mono mt-0.5">{signal.id}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+
+          <div className="flex items-center gap-3">
+            {/* Favorite star */}
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 toggleFavorite(signal.pair);
               }}
-              className="p-1 hover:bg-muted rounded"
+              className="p-1.5 hover:bg-muted rounded-lg transition"
             >
               <Star
-                className={`h-3.5 w-3.5 ${fav ? "fill-amber-400 text-amber-400" : "text-muted-foreground"}`}
+                className={`h-4 w-4 ${fav ? "fill-amber-400 text-amber-400" : "text-muted-foreground/50"}`}
               />
             </button>
-            <div className="flex flex-col items-end gap-1.5">
-              <Badge
-                className={`text-sm font-black px-3 py-0.5 ${isBuy ? "bg-emerald-500/20 text-emerald-500 hover:bg-emerald-500/30 border-emerald-500/30" : "bg-rose-500/20 text-rose-500 hover:bg-rose-500/30 border-rose-500/30"}`}
-                variant="outline"
+
+            {/* ═══ BIG BUY / SELL BADGE ═══ */}
+            {isActive ? (
+              <div
+                className={`flex items-center gap-2 rounded-2xl px-5 py-2.5 border-2 ${
+                  isBuy
+                    ? "bg-emerald-500/15 border-emerald-500/50 shadow-lg shadow-emerald-500/10"
+                    : "bg-rose-500/15 border-rose-500/50 shadow-lg shadow-rose-500/10"
+                }`}
               >
                 {isBuy ? (
-                  <span className="flex items-center gap-1.5">
-                    <ArrowUpRight className="h-4 w-4" /> BUY
-                  </span>
+                  <ArrowUpRight className="h-7 w-7 text-emerald-500" />
                 ) : (
-                  <span className="flex items-center gap-1.5">
-                    <ArrowDownRight className="h-4 w-4" /> SELL
-                  </span>
+                  <ArrowDownRight className="h-7 w-7 text-rose-500" />
                 )}
-              </Badge>
-              {signal.confidence && (
+                <span
+                  className={`text-3xl font-black tracking-tight ${
+                    isBuy ? "text-emerald-500" : "text-rose-500"
+                  }`}
+                >
+                  {signal.type}
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 rounded-2xl px-5 py-2.5 border-2 border-border/30">
+                {isTP ? (
+                  <Target className="h-6 w-6 text-emerald-500" />
+                ) : (
+                  <ShieldAlert className="h-6 w-6 text-rose-500" />
+                )}
+                <span
+                  className={`text-2xl font-black ${
+                    isTP ? "text-emerald-500" : "text-rose-500"
+                  }`}
+                >
+                  {isTP ? "TP HIT" : isSL ? "SL HIT" : "EXPIRED"}
+                </span>
+              </div>
+            )}
+
+            {/* Confidence bar */}
+            {signal.confidence && (
+              <div className="hidden sm:block">
                 <ConfidenceBar confidence={signal.confidence} />
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* REAL-TIME PIPS COUNTER (active only) */}
+        {/* ═══ 15MIN LIVE CHART — only for active signals ═══ */}
+        {isActive && (
+          <div className="mb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center gap-1.5">
+                <PulseDot color="bg-emerald-400" />
+                <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-500">
+                  15min Live Chart
+                </span>
+              </div>
+              <span className="text-[10px] text-muted-foreground">
+                — Signal generated at {formatTime(signal.timestamp)}
+              </span>
+            </div>
+            <MiniChart pair={signal.pair} height={220} />
+          </div>
+        )}
+
+        {/* ═══ REAL-TIME PIPS COUNTER (active only) ═══ */}
         {isActive && livePips !== null && (
           <div
-            className={`mb-3 rounded-xl p-3 border transition-all duration-300 ${pipsBg} ${livePips >= 0 ? "border-emerald-500/20" : "border-rose-500/20"}`}
+            className={`mb-4 rounded-2xl p-4 border-2 transition-all duration-300 ${pipsBg} ${livePips >= 0 ? "border-emerald-500/25" : "border-rose-500/25"}`}
           >
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-1.5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
                 <PulseDot
-                  color={
-                    livePips >= 0 ? "bg-emerald-400" : "bg-rose-400"
-                  }
+                  color={livePips >= 0 ? "bg-emerald-400" : "bg-rose-400"}
                 />
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
                   Live P&L
                 </span>
               </div>
               <span
-                className={`text-2xl font-black tabular-nums ${pipsColor}`}
+                className={`text-3xl font-black tabular-nums ${pipsColor}`}
               >
                 {livePips >= 0 ? "+" : ""}
                 {livePips.toFixed(1)}
-                <span className="text-xs font-bold ml-0.5">pips</span>
+                <span className="text-sm font-bold ml-1">pips</span>
               </span>
             </div>
-            <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-2">
+            <div className="flex items-center justify-between text-xs text-muted-foreground mb-3">
               <span>
                 Current:{" "}
-                <span className="font-mono font-bold text-foreground/80">
+                <span className="font-mono font-bold text-foreground/90">
                   {formatPrice(livePrice!, signal.pair)}
                 </span>
               </span>
-              <span className="flex items-center gap-1">
+              <span className="flex items-center gap-1.5">
                 {livePips >= 0 ? (
-                  <ArrowUpRight className="h-3 w-3 text-emerald-500" />
+                  <ArrowUpRight className="h-3.5 w-3.5 text-emerald-500" />
                 ) : (
-                  <ArrowDownRight className="h-3 w-3 text-rose-500" />
+                  <ArrowDownRight className="h-3.5 w-3.5 text-rose-500" />
                 )}
                 <span className={`font-bold ${pipsColor}`}>
                   {livePips >= 0 ? "+" : ""}
@@ -275,91 +298,93 @@ export function SignalCard({
             </div>
 
             {/* TP/SL Progress bars */}
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-2">
-                <span className="text-[9px] font-bold text-emerald-500 w-6">TP</span>
-                <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2.5">
+                <span className="text-[10px] font-black text-emerald-500 w-7">TP</span>
+                <div className="flex-1 h-2 bg-muted/50 rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-emerald-500 rounded-full transition-all duration-1000"
+                    className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 rounded-full transition-all duration-1000"
                     style={{ width: `${Math.min(tpProgress, 100)}%` }}
                   />
                 </div>
-                <span className="text-[9px] font-mono text-muted-foreground w-8 text-right">
+                <span className="text-[10px] font-mono font-bold text-muted-foreground w-10 text-right">
                   {tpProgress.toFixed(0)}%
                 </span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[9px] font-bold text-rose-500 w-6">SL</span>
-                <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+              <div className="flex items-center gap-2.5">
+                <span className="text-[10px] font-black text-rose-500 w-7">SL</span>
+                <div className="flex-1 h-2 bg-muted/50 rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-rose-500 rounded-full transition-all duration-1000"
+                    className="h-full bg-gradient-to-r from-rose-600 to-rose-400 rounded-full transition-all duration-1000"
                     style={{ width: `${Math.min(slProgress, 100)}%` }}
                   />
                 </div>
-                <span className="text-[9px] font-mono text-muted-foreground w-8 text-right">
+                <span className="text-[10px] font-mono font-bold text-muted-foreground w-10 text-right">
                   {slProgress.toFixed(0)}%
                 </span>
               </div>
             </div>
 
-            {/* Countdown Timer (15 min = 900s) */}
+            {/* Countdown Timer (10 min = 600s) */}
             <CountdownTimer
               signalTimestamp={signal.timestamp}
-              durationSec={900}
+              durationSec={600}
             />
           </div>
         )}
 
-        <div className="mb-2 grid grid-cols-3 gap-2">
-          <div className="rounded-lg bg-background/60 p-2.5">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+        {/* ═══ ENTRY / TP / SL GRID ═══ */}
+        <div className="mb-3 grid grid-cols-3 gap-3">
+          <div className="rounded-xl bg-background/60 p-3 border border-border/10">
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">
               Entry
             </p>
-            <p className="font-mono text-sm font-bold text-foreground">
+            <p className="font-mono text-base font-bold text-foreground">
               {formatPrice(signal.entry, signal.pair)}
             </p>
           </div>
-          <div className="rounded-lg bg-emerald-500/10 p-2.5">
-            <p className="text-[10px] uppercase tracking-wider text-emerald-500/70">
+          <div className="rounded-xl bg-emerald-500/10 p-3 border border-emerald-500/15">
+            <p className="text-[10px] uppercase tracking-widest text-emerald-500/70 mb-1">
               TP{" "}
-              <span className="text-[8px] text-emerald-500/40">
-                ({signal.tpPips ? formatPrice(signal.tpPips, signal.pair) : "--"})
+              <span className="text-[9px] text-emerald-500/40">
+                (+{signal.tpPips ? formatPrice(signal.tpPips, signal.pair) : "--"})
               </span>
             </p>
-            <p className="font-mono text-sm font-bold text-emerald-500">
+            <p className="font-mono text-base font-bold text-emerald-500">
               {formatPrice(signal.tp, signal.pair)}
             </p>
           </div>
-          <div className="rounded-lg bg-rose-500/10 p-2.5">
-            <p className="text-[10px] uppercase tracking-wider text-rose-500/70">
+          <div className="rounded-xl bg-rose-500/10 p-3 border border-rose-500/15">
+            <p className="text-[10px] uppercase tracking-widest text-rose-500/70 mb-1">
               SL{" "}
-              <span className="text-[8px] text-rose-500/40">
-                ({signal.slPips ? formatPrice(signal.slPips, signal.pair) : "--"})
+              <span className="text-[9px] text-rose-500/40">
+                (-{signal.slPips ? formatPrice(signal.slPips, signal.pair) : "--"})
               </span>
             </p>
-            <p className="font-mono text-sm font-bold text-rose-500">
+            <p className="font-mono text-base font-bold text-rose-500">
               {formatPrice(signal.sl, signal.pair)}
             </p>
           </div>
         </div>
 
+        {/* ═══ KEY CONFLUENCES ═══ */}
         {signal.reasoning && signal.reasoning.length > 0 && (
-          <div className="mb-2 rounded-lg bg-background/40 p-2">
-            <p className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+          <div className="mb-3 rounded-xl bg-background/40 p-3 border border-border/10">
+            <p className="mb-2 text-[10px] uppercase tracking-widest text-muted-foreground font-bold">
               Key Confluences
             </p>
-            <div className="flex flex-wrap gap-1">
-              {signal.reasoning.slice(0, 4).map((r, i) => (
+            <div className="flex flex-wrap gap-1.5">
+              {signal.reasoning.slice(0, 5).map((r, i) => (
                 <span
                   key={i}
-                  className="rounded-full bg-background/80 px-2 py-0.5 text-[10px] text-foreground/70"
+                  className="rounded-full bg-background/80 border border-border/10 px-2.5 py-1 text-[10px] text-foreground/70"
                 >
                   {r}
                 </span>
               ))}
-              {signal.reasoning.length > 4 && (
-                <span className="rounded-full bg-cyan-500/10 px-2 py-0.5 text-[10px] text-cyan-400">
-                  +{signal.reasoning.length - 4} more
+              {signal.reasoning.length > 5 && (
+                <span className="rounded-full bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-1 text-[10px] font-bold text-cyan-400">
+                  +{signal.reasoning.length - 5} more
                 </span>
               )}
             </div>
@@ -368,8 +393,9 @@ export function SignalCard({
 
         <IndicatorsPanel indicators={signal.indicators} />
 
-        <div className="mt-3 flex items-center justify-between border-t border-border/20 pt-2">
-          <div className="flex items-center gap-2">
+        {/* ═══ FOOTER METADATA ═══ */}
+        <div className="mt-4 flex items-center justify-between border-t border-border/20 pt-3">
+          <div className="flex items-center gap-2 flex-wrap">
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Clock className="h-3 w-3" />
               {formatTime(signal.timestamp)}
@@ -384,7 +410,7 @@ export function SignalCard({
               variant="outline"
               className="border-violet-500/30 bg-violet-500/10 text-[9px] font-bold text-violet-400"
             >
-              v5.0
+              v8.1
             </Badge>
             {signal.confluences && (
               <Badge
@@ -403,12 +429,12 @@ export function SignalCard({
               </Badge>
             )}
           </div>
-          {isActive && livePips === null ? (
+          {isActive && (
             <div className="flex items-center gap-1.5">
               <PulseDot color="bg-emerald-400" />
               <span className="text-xs font-bold text-emerald-500">LIVE</span>
             </div>
-          ) : null}
+          )}
         </div>
       </CardContent>
     </Card>

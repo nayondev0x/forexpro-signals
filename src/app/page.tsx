@@ -70,7 +70,7 @@ import {
 import { getSessionAtTime, calcPips, formatPrice } from "@/lib/forex-helpers";
 import type { ForexSignal, PriceData } from "@/lib/forex-types";
 
-const SIGNAL_MAX_AGE_MS = 15 * 60 * 1000; // 15 min auto expire (M15 chart)
+const SIGNAL_MAX_AGE_MS = 10 * 60 * 1000; // 10 min auto expire (5-10min scalp trade)
 const SCAN_INTERVAL_MS = 15000; // scan every 15s for new signals
 const PRICE_CHECK_INTERVAL_MS = 5000; // check live prices every 5s for TP/SL
 
@@ -381,7 +381,7 @@ export default function Home() {
     <div className="flex min-h-screen flex-col bg-background">
       <SiteHeader tradingMode={tradingMode} dataSource={dataSource} />
 
-      {prices.length > 0 && <PriceTickerBar prices={prices} />}
+      {tradingMode && prices.length > 0 && <PriceTickerBar prices={prices} />}
       {tradingMode && <SessionBar />}
       <ControlsBar
         refreshing={refreshing}
@@ -582,7 +582,7 @@ export default function Home() {
                         <>
                           <RefreshCw className="mb-4 h-12 w-12 text-cyan-500/50 animate-spin" />
                           <p className="text-lg font-bold text-cyan-500">
-                            Scanning 12 pairs with 6 layers...
+                            Scanning 12 pairs with 10 layers...
                           </p>
                           <p className="mt-1 text-sm text-muted-foreground">
                             Only the KILLER signal (92%+ confidence, 16+ confluences, MTF aligned) will appear
@@ -598,7 +598,7 @@ export default function Home() {
                             No qualifying signals right now
                           </p>
                           <p className="mb-2 text-sm text-muted-foreground/60">
-                            Engine requires 92%+ confidence, 16+ confluences, multi-timeframe alignment
+                            Engine requires 92%+ confidence, 16+ confluences, MTF alignment, 5min entry timing
                           </p>
                           <button
                             onClick={refreshSignals}
@@ -612,7 +612,7 @@ export default function Home() {
                     </CardContent>
                   </Card>
                 ) : (
-                  <div className="grid gap-4 sm:grid-cols-1 max-w-2xl mx-auto">
+                  <div className="grid gap-4 sm:grid-cols-1 max-w-3xl mx-auto">
                     {activeSignals.map((s) => {
                       const lp = prices.find((p) => p.pair === s.pair)?.bid;
                       return (

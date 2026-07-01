@@ -5,7 +5,7 @@ import { Timer, AlertTriangle } from "lucide-react";
 
 export function CountdownTimer({
   signalTimestamp,
-  durationSec = 900,
+  durationSec = 600,
 }: {
   signalTimestamp: string;
   durationSec?: number;
