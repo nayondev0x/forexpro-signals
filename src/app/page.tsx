@@ -18,6 +18,8 @@ import {
   XCircle,
   Timer,
   RefreshCw,
+  Coins,
+  Activity as ActivityIcon,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
@@ -46,6 +48,8 @@ import { FinvizDashboard } from "@/components/finviz/finviz-dashboard";
 import { OffBanner } from "@/components/forex/off-banner";
 import { SignalHistory } from "@/components/forex/signal-history";
 import { MarketWatch } from "@/components/forex/market-watch";
+import { MarketMovers } from "@/components/forex/market-movers-bloomberg";
+import { CommodityTicker } from "@/components/forex/commodity-ticker";
 import {
   SignalCardSkeleton,
   StatsCardSkeleton,
@@ -511,6 +515,16 @@ export default function Home() {
                   <Newspaper className="h-4 w-4" />News
                 </span>
               </TabsTrigger>
+              <TabsTrigger value="movers" className="data-[state=active]:bg-orange-500/20 data-[state=active]:text-orange-500 text-xs">
+                <span className="flex items-center gap-1.5">
+                  <ActivityIcon className="h-4 w-4" />Movers
+                </span>
+              </TabsTrigger>
+              <TabsTrigger value="commodities" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-500 text-xs">
+                <span className="flex items-center gap-1.5">
+                  <Coins className="h-4 w-4" />Gold/Comm
+                </span>
+              </TabsTrigger>
               <TabsTrigger value="stocks" className="data-[state=active]:bg-orange-500/20 data-[state=active]:text-orange-500 text-xs">
                 <span className="flex items-center gap-1.5">
                   <LineChart className="h-4 w-4" />Stocks
@@ -736,6 +750,20 @@ export default function Home() {
             <TabsContent value="news">
               <ErrorBoundary>
                 <MarketNews />
+              </ErrorBoundary>
+            </TabsContent>
+
+            {/* Market Movers (Bloomberg DOW) */}
+            <TabsContent value="movers">
+              <ErrorBoundary>
+                <MarketMovers />
+              </ErrorBoundary>
+            </TabsContent>
+
+            {/* Commodities (Gold, Oil, Silver...) */}
+            <TabsContent value="commodities">
+              <ErrorBoundary>
+                <CommodityTicker />
               </ErrorBoundary>
             </TabsContent>
 
